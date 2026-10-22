@@ -145,6 +145,35 @@
       return click;
     }
   }
+  // 떨림 제거 필터 1: 최근 size개 점의 평균
+  class MovingAverage {
+    constructor(size) { this.size = size; this.reset(); }
+    reset() { this.points = []; }
+    update(point) {
+      this.points.push(point);
+      // 창 크기를 넘으면 가장 오래된 점을 버린다
+      if (this.points.length > this.size) this.points.shift();
+      return [0, 1].map(k => this.points.reduce((sum, p) => sum + p[k], 0) / this.points.length);
+    }
+  }
+  // 떨림 제거 필터 2: 새값×alpha + 이전값×(1-alpha). 최근 값일수록 더 크게 반영된다
+  class ExponentialSmoothing {
+    constructor(alpha) { this.alpha = alpha; this.reset(); }
+    reset() { this.value = null; }
+    update(point) {
+      // 첫 점은 비교할 이전값이 없으므로 그대로 쓴다
+      if (!this.value) this.value = point;
+      else this.value = this.value.map((old, k) => point[k] * this.alpha + old * (1 - this.alpha));
+      return this.value;
+    }
+  }
+  // 점들이 평균 위치에서 얼마나 흩어져 있는지(표준편차, px). 필터 전/후 떨림 비교에 쓴다
+  function jitter(points) {
+    if (points.length < 2) return 0;
+    const mean = [0, 1].map(k => points.reduce((sum, p) => sum + p[k], 0) / points.length);
+    const variance = points.reduce((sum, p) => sum + (p[0] - mean[0]) ** 2 + (p[1] - mean[1]) ** 2, 0) / points.length;
+    return Math.sqrt(variance);
+  }
   // Jev 대신 직접 만든 대상 선택: 시선에서 가장 가까운 요소를 고른다.
   class NearestSelector {
     constructor() { this.reset(); }
@@ -175,6 +204,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, correctBias, Blink, NearestSelector, distanceToRect, summarize, CalibrationCollector};
+  globalThis.GazeCore = {fit, predict, correctBias, Blink, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, distanceToRect, summarize, CalibrationCollector};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

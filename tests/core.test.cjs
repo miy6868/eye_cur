@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, NearestSelector, fit, predict, distanceToRect, summarize, CalibrationCollector} = require('../extension/core.js');
+const {Blink, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, fit, predict, distanceToRect, summarize, CalibrationCollector} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -161,4 +161,33 @@ test('NearestSelector keeps the selection unless the new leader is 30px closer',
   assert.equal(s.update([near('b', 0), near('a', 20)], 800).id, 'a');
   // 30px 이상 차이가 나면 b로 바뀜
   assert.equal(s.update([near('b', 0), near('a', 30)], 900).id, 'b');
+});
+
+test('MovingAverage averages only the last size points', () => {
+  const f = new MovingAverage(3);
+  assert.deepEqual(f.update([0, 0]), [0, 0]);
+  assert.deepEqual(f.update([3, 6]), [1.5, 3]);
+  f.update([6, 12]);
+  // [0, 0]은 창 밖으로 밀려나 (3+6+9)/3, (6+12+18)/3
+  assert.deepEqual(f.update([9, 18]), [6, 12]);
+});
+
+test('ExponentialSmoothing mixes new and previous values by alpha', () => {
+  const f = new ExponentialSmoothing(0.45);
+  assert.deepEqual(f.update([100, 0]), [100, 0]);
+  const [x, y] = f.update([200, 100]);
+  assert.ok(Math.abs(x - 145) < 1e-9 && Math.abs(y - 45) < 1e-9);
+});
+
+test('filters forget old points after reset', () => {
+  const average = new MovingAverage(5), smooth = new ExponentialSmoothing(0.45);
+  average.update([100, 100]); smooth.update([100, 100]);
+  average.reset(); smooth.reset();
+  assert.deepEqual(average.update([10, 20]), [10, 20]);
+  assert.deepEqual(smooth.update([10, 20]), [10, 20]);
+});
+
+test('jitter is the standard deviation of points in pixels', () => {
+  assert.equal(jitter([[5, 5]]), 0);
+  assert.equal(jitter([[0, 0], [6, 8]]), 5);
 });

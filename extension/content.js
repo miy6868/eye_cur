@@ -3,8 +3,19 @@
   globalThis.__gazeInstalled = true;
   // false: 서버(Jev API) 대신 직접 만든 NearestSelector로 대상을 고른다. API 키가 없어도 동작한다.
   const USE_JEV = false;
-  const {fit, predict, correctBias, Blink, NearestSelector, CalibrationCollector} = globalThis.GazeCore;
+  const {fit, predict, correctBias, Blink, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, CalibrationCollector} = globalThis.GazeCore;
   const nearest = new NearestSelector();
+  // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
+  const filterChoices = [
+    {name: '끔', create: () => null},
+    {name: '이동평균(5)', create: () => new MovingAverage(5)},
+    {name: '지수평균(0.45)', create: () => new ExponentialSmoothing(0.45)},
+  ];
+  let filterIndex = 2; // 기존 동작(0.55/0.45 지수평균)과 같게 시작
+  let filter = filterChoices[filterIndex].create();
+  let trail = []; // 최근 3초의 {raw, filtered, time}: 떨림 계산과 그래프용
+  const GRAPH_MS = 3000;
+  const JITTER_MS = 1500;
   const trainingPoints = [.04, .35, .65, .96].flatMap((y, row) =>
     (row % 2 ? [.96, .65, .35, .04] : [.04, .35, .65, .96]).map(x => [x, y]));
   const validationPoints = [[.06, .06], [.94, .06], [.94, .94], [.06, .94], [.5, .5]];
@@ -24,7 +35,7 @@
     send({type: 'uiStatus', message: text});
   }
   function invalidate() {
-    selected = null; pending = null; history = []; smooth = null;
+    selected = null; pending = null; history = []; resetFilter();
     requestNumber++; blink?.reset();
     nearest.reset(); // 스크롤·탭 이동 뒤에는 머무름을 처음부터 다시 잰다
     if (shadow) shadow.querySelector('#target').hidden = true;
@@ -34,7 +45,7 @@
     if (shadow && message) {
       status(message);
       shadow.querySelector('#veil').hidden = true;
-      shadow.querySelector('#cursor').hidden = true;
+      hideCursor();
       shadow.querySelector('#stop').hidden = true;
       shadow.querySelector('#recalibrate').hidden = true;
       const notice = host;
@@ -47,7 +58,7 @@
   function stop(message) { end(message); send({type: 'stop', reason: message}); }
   function geometry() { return [innerWidth, innerHeight, screenX, screenY, devicePixelRatio, visualViewport?.scale || 1].join(','); }
   function start(message = {}) {
-    end(); currentContext = message.context; running = true; model = null; smooth = null; blink = new Blink();
+    end(); currentContext = message.context; running = true; model = null; resetFilter(); blink = new Blink();
     ids = new WeakMap(); idNumber = 0; lastStatus = ''; lastFrame = performance.now();
     lastRequest = 0; layout = geometry();
     const saved = message.calibration;
@@ -63,24 +74,27 @@
       #veil{position:fixed;inset:0;background:#0c1728f5;pointer-events:auto}
       #dot{position:fixed;width:26px;height:26px;border:5px solid #fff;border-radius:50%;background:#32dba0;transform:translate(-50%,-50%);box-shadow:0 0 0 14px #32dba029}
       #guide{position:fixed;top:24px;left:50%;transform:translateX(-50%);font:16px/1.5 system-ui;color:#fff;text-align:center}
-      #panel{position:fixed;bottom:14px;left:14px;max-width:520px;border:1px solid #ffffff24;background:#142236;color:#fff;border-radius:9px;padding:10px 14px;font:13px/1.5 system-ui;display:flex;gap:12px;align-items:center}
+      #panel{position:fixed;bottom:14px;left:14px;max-width:520px;border:1px solid #ffffff24;background:#142236;color:#fff;border-radius:9px;padding:10px 14px;font:13px/1.5 system-ui;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
       button{pointer-events:auto;white-space:nowrap;border:0;border-radius:5px;padding:6px 9px;background:#33465e;color:#fff;cursor:pointer}
+      #raw{position:fixed;width:6px;height:6px;border-radius:50%;background:#ff3b3b;transform:translate(-50%,-50%)}
+      #graph{background:#0c1728;border-radius:4px}
       #cursor{position:fixed;width:12px;height:12px;border:2px solid #fff;border-radius:50%;background:#176cff;transform:translate(-50%,-50%)}
       #target{position:fixed;border:3px solid #21dba0;border-radius:5px;background:#21dba01a;box-shadow:0 0 0 2px #071b2a99}
       </style>
       <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요.<br>보정은 자동으로 진행됩니다.</div><div id="dot"></div></div>
-      <div id="cursor" hidden></div><div id="target" hidden></div>
-      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="status"></span><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
+      <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
+      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
     shadow.querySelector('#stop').onclick = () => stop('중지됨');
     shadow.querySelector('#recalibrate').onclick = () => send({type: 'recalibrate'});
+    showFilterName();
     if (calibration) { placeDot(); status('16점 정밀 보정 · 카메라 연결 대기 중…'); }
     else { shadow.querySelector('#veil').hidden = true; status('보정 유지 · 이 탭에서 계속합니다.'); }
     timer = setInterval(() => {
       if (!running) return;
       if (geometry() !== layout) { send({type: 'calibrationInvalid'}); start({context: currentContext}); return; }
       if (performance.now() - lastFrame > 500) {
-        invalidate(); shadow.querySelector('#cursor').hidden = true;
+        invalidate(); hideCursor();
         if (calibration) calibration.collector.resumeAt = performance.now() + 350;
       }
       if (pending && performance.now() - pending.sent > 1800) {
@@ -191,7 +205,7 @@
     shadow.querySelector('#eyes').textContent = !message.valid ? '눈 추적 끊김' : message.eyesReady === false ? '눈 뜬 상태 학습 중' : message.closed ? '양눈 감음' : message.closing ? '눈 감는 중' : '눈 뜸';
     if (Number.isFinite(message.openness)) shadow.querySelector('#eyes').textContent += ` · 눈 열림 ${Math.round(message.openness * 100)}%`;
     if (!document.hasFocus() || document.hidden || !message.valid) {
-      invalidate(); shadow.querySelector('#cursor').hidden = true;
+      invalidate(); hideCursor();
       if (calibration) calibration.collector.resumeAt = now + 350;
       status(!message.valid ? (message.error || '얼굴을 찾는 중… 카메라를 바라보세요.') : '페이지로 돌아오면 계속합니다.');
       return;
@@ -216,17 +230,22 @@
     if (!message.gaze) return;
     const point = predict(model, message.gaze);
     if (point.some(v => !Number.isFinite(v))) {
-      pending = null; requestNumber++; history = []; smooth = null;
-      shadow.querySelector('#cursor').hidden = true; return;
+      pending = null; requestNumber++; history = []; resetFilter();
+      hideCursor(); return;
     }
     if (point.some(v => v < -.1 || v > 1.1)) {
-      pending = null; requestNumber++; history = []; smooth = null;
-      shadow.querySelector('#cursor').hidden = true; return;
+      pending = null; requestNumber++; history = []; resetFilter();
+      hideCursor(); return;
     }
     const xy = [point[0] * innerWidth, point[1] * innerHeight];
-    smooth = smooth ? smooth.map((v, k) => v * .55 + xy[k] * .45) : xy;
-    const cursor = shadow.querySelector('#cursor'); cursor.hidden = false;
-    cursor.style.left = `${smooth[0]}px`; cursor.style.top = `${smooth[1]}px`;
+    // 필터를 끈 상태면 원본 점을 그대로 쓴다. 대상 선택에는 이 필터 결과(smooth)를 쓴다
+    smooth = filter ? filter.update(xy) : xy;
+    showDot('#raw', xy);
+    showDot('#cursor', smooth);
+    trail.push({raw: xy, filtered: smooth, time: now});
+    trail = trail.filter(p => now - p.time < GRAPH_MS);
+    showJitter(now);
+    drawGraph(now);
     history.push({x: Math.round(smooth[0]), y: Math.round(smooth[1]), time: now});
     history = history.filter(p => now - p.time < 1200).slice(-8);
     if (!USE_JEV) { chooseNearest(now); return; }
@@ -241,6 +260,57 @@
       history: history.map(p => ({x: p.x, y: p.y, ageMs: Math.round(now - p.time)})),
       candidates: items.map(({element, href, ...data}) => data)});
     if (!selected) status('Jev가 클릭 대상을 고르는 중…');
+  }
+  function resetFilter() {
+    smooth = null;
+    filter?.reset();
+    trail = [];
+  }
+  function hideCursor() {
+    shadow.querySelector('#cursor').hidden = true;
+    shadow.querySelector('#raw').hidden = true;
+  }
+  function showDot(id, [x, y]) {
+    const dot = shadow.querySelector(id);
+    dot.hidden = false;
+    dot.style.left = `${x}px`;
+    dot.style.top = `${y}px`;
+  }
+  function showFilterName() {
+    shadow.querySelector('#filter').textContent = `필터: ${filterChoices[filterIndex].name} · F로 변경`;
+  }
+  function nextFilter() {
+    filterIndex = (filterIndex + 1) % filterChoices.length;
+    filter = filterChoices[filterIndex].create();
+    resetFilter(); // 이전 필터의 점이 섞이지 않게 떨림 기록도 새로 시작
+    showFilterName();
+  }
+  function showJitter(now) {
+    // 최근 1.5초 점들의 표준편차로 원본과 필터 결과의 떨림을 비교한다
+    const recent = trail.filter(p => now - p.time < JITTER_MS);
+    const raw = Math.round(jitter(recent.map(p => p.raw)));
+    const filtered = Math.round(jitter(recent.map(p => p.filtered)));
+    shadow.querySelector('#jitter').textContent = `떨림: 원본 ${raw}px → 필터 ${filtered}px`;
+  }
+  function drawGraph(now) {
+    // 최근 3초의 x좌표: 빨강 = 원본, 파랑 = 필터. 오른쪽 끝이 지금이다
+    const canvas = shadow.querySelector('#graph');
+    const context = canvas.getContext('2d');
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    const xs = trail.flatMap(p => [p.raw[0], p.filtered[0]]);
+    const low = Math.min(...xs);
+    // 세로축을 최근 값 범위에 맞춰야 작은 떨림도 보인다 (최소 40px 범위)
+    const high = Math.max(low + 40, ...xs);
+    for (const [key, color] of [['raw', '#ff3b3b'], ['filtered', '#4d9bff']]) {
+      context.strokeStyle = color;
+      context.beginPath();
+      for (const p of trail) {
+        const gx = canvas.width * (1 - (now - p.time) / GRAPH_MS);
+        const gy = canvas.height * (1 - (p[key][0] - low) / (high - low));
+        context.lineTo(gx, gy);
+      }
+      context.stroke();
+    }
   }
   function chooseNearest(now) {
     const item = nearest.update(candidates(...smooth), now);
@@ -274,7 +344,16 @@
     }
   });
   document.addEventListener('keydown', event => { if (host && event.key === 'Escape') { event.preventDefault(); stop('ESC로 중지됨'); } }, true);
-  document.addEventListener('visibilitychange', () => { if (running && document.hidden) { invalidate(); shadow.querySelector('#cursor').hidden = true; } });
+  document.addEventListener('keydown', event => {
+    // event.code는 한글 입력 상태에서도 'KeyF'. Ctrl+F(찾기) 같은 단축키는 건드리지 않는다
+    if (!running || event.code !== 'KeyF' || event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target;
+    // 입력칸에 타이핑 중이면 F는 글자로 남겨 둔다
+    if (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+    event.preventDefault();
+    nextFilter();
+  }, true);
+  document.addEventListener('visibilitychange', () => { if (running && document.hidden) { invalidate(); hideCursor(); } });
   window.addEventListener('scroll', () => { if (running) invalidate(); }, true);
   window.addEventListener('blur', () => { if (running) invalidate(); });
 })();
