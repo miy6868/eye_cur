@@ -20,15 +20,16 @@
   header { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; }
   h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
   header p { margin: 4px 0 0; color: #6b7280; }
-  /* 시선 오차가 커서 버튼을 크게, 멀리 떨어뜨려 둔다 */
-  .grid { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6vw; }
+  /* 난이도: 작은 버튼 12개를 화면 전체에 흩어 놓는다. 칸은 넓고 버튼만 작게 해서 가장자리 정확도도 본다 */
+  .grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); align-content: space-evenly; justify-items: center; gap: 4vw; }
   button {
-    min-height: 160px;
+    width: 160px;
+    height: 80px;
     border: 1px solid #e5e7eb;
-    border-radius: 20px;
+    border-radius: 14px;
     background: #fff;
     color: inherit;
-    font: 600 22px system-ui, sans-serif;
+    font: 600 20px system-ui, sans-serif;
     cursor: pointer;
     transition: background .2s, color .2s;
   }
@@ -45,8 +46,9 @@
   <output id="result" aria-live="polite">클릭 0회</output>
 </header>
 <main class="grid">
-  <button>1</button><button>2</button><button>3</button>
-  <button>4</button><button>5</button><button>6</button>
+  <button>1</button><button>2</button><button>3</button><button>4</button>
+  <button>5</button><button>6</button><button>7</button><button>8</button>
+  <button>9</button><button>10</button><button>11</button><button>12</button>
 </main>
 <footer>
   <input placeholder="입력칸 테스트">
