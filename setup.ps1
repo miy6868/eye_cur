@@ -16,4 +16,4 @@ if ($LASTEXITCODE -ne 0) { throw '라이브러리 설치 실패' }
 & .venv/Scripts/python.exe scripts/download_models.py
 if ($LASTEXITCODE -ne 0) { throw '가중치 다운로드 실패' }
 if (-not (Test-Path '.env')) { Copy-Item .env.example .env }
-Write-Host '설치 완료. .env에 TYPESAFE_API_KEY를 입력한 뒤 ./start.ps1을 실행하세요.'
+Write-Host '설치 완료. ./start.ps1을 실행하세요. (API 키는 선택(USE_JEV): Jev를 켤 때만 .env에 TYPESAFE_API_KEY 입력)'

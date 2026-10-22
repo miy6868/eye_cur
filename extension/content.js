@@ -75,6 +75,7 @@
       <style>
       :host{all:initial}*{box-sizing:border-box}[hidden]{display:none!important}
       #veil{position:fixed;inset:0;background:#0c1728f5;pointer-events:auto}
+      #use{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);padding:12px 22px;font:600 16px system-ui;background:#21dba0;color:#071b2a}
       #dot{position:fixed;width:26px;height:26px;border:5px solid #fff;border-radius:50%;background:#32dba0;transform:translate(-50%,-50%);box-shadow:0 0 0 14px #32dba029}
       #guide{position:fixed;top:24px;left:50%;transform:translateX(-50%);font:16px/1.5 system-ui;color:#fff;text-align:center}
       #panel{position:fixed;bottom:14px;left:14px;max-width:520px;border:1px solid #ffffff24;background:#142236;color:#fff;border-radius:9px;padding:10px 14px;font:13px/1.5 system-ui;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
@@ -84,12 +85,13 @@
       #cursor{position:fixed;width:12px;height:12px;border:2px solid #fff;border-radius:50%;background:#176cff;transform:translate(-50%,-50%)}
       #target{position:fixed;border:3px solid #21dba0;border-radius:5px;background:#21dba01a;box-shadow:0 0 0 2px #071b2a99}
       </style>
-      <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요.<br>보정은 자동으로 진행됩니다.</div><div id="dot"></div></div>
+      <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요.<br>보정은 자동으로 진행됩니다.</div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
       <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
     shadow.querySelector('#stop').onclick = () => stop('중지됨');
     shadow.querySelector('#recalibrate').onclick = () => send({type: 'recalibrate'});
+    shadow.querySelector('#use').onclick = () => finishCalibration(calibration.result);
     showFilterName();
     if (calibration) { placeDot(); status('16점 정밀 보정 · 카메라 연결 대기 중…'); }
     else { shadow.querySelector('#veil').hidden = true; status('보정 유지 · 이 탭에서 계속합니다.'); }
@@ -153,13 +155,16 @@
             return;
           }
           const worst = Math.max(...calibration.validation.map(v => v.pixels));
-          calibrationFailed(`검증 평균 ${pixelRms}px · 최대 ${worst}px. ${calibration.refined ? '추가 보정 후에도 오차가 큽니다.' : '위치별 오차가 달라 일정한 편향으로 보정할 수 없습니다.'} 이 측정만으로 원인은 확정할 수 없습니다. 카메라 위치와 조명을 확인한 뒤 다시 보정하세요.`);
+          // 학습은 끝났으니 버리지 않고, 오차를 보여 준 뒤 사용자가 계속할지 고르게 한다
+          calibration.result = {rms, pixelRms};
+          const message = `검증 평균 ${pixelRms}px · 최대 ${worst}px로 기준보다 큽니다. 그래도 사용하거나 다시 보정하세요.`;
+          shadow.querySelector('#guide').textContent = message;
+          shadow.querySelector('#dot').hidden = true;
+          shadow.querySelector('#use').hidden = false;
+          status(message);
           return;
         }
-        model.error = Math.max(model.error, rms);
-        calibration = null; shadow.querySelector('#veil').hidden = true;
-        send({type: 'calibrated', model, layout});
-        status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · 검증 오차 ${pixelRms}px · ${CLICK_HINT}.`);
+        finishCalibration({rms, pixelRms});
         return;
       }
     } else calibration.samples.push({gaze, target});
@@ -170,6 +175,13 @@
       } catch (error) { calibrationFailed(error.message); return; }
     }
     calibration.index++; calibration.retries = 0; placeDot();
+  }
+  function finishCalibration({rms, pixelRms}) {
+    // 검증 오차만큼 후보 탐색 반경도 넓어지도록 모델 오차에 반영한다
+    model.error = Math.max(model.error, rms);
+    calibration = null; shadow.querySelector('#veil').hidden = true;
+    send({type: 'calibrated', model, layout});
+    status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · 검증 오차 ${pixelRms}px · ${CLICK_HINT}.`);
   }
   function calibrationFailed(message) {
     running = false; clearInterval(timer); invalidate();
@@ -216,6 +228,7 @@
       status(!message.valid ? (message.error || '얼굴을 찾는 중… 카메라를 바라보세요.') : '페이지로 돌아오면 계속합니다.');
       return;
     }
+    if (calibration?.result) return; // '그래도 사용' 버튼을 기다리는 중
     if (calibration) { calibrate(message, now); return; }
     if (!model) return;
     if (selected && !GazeDOM.unchanged(selected)) invalidate();
