@@ -11,6 +11,10 @@ class LatestCamera:
         # Windows는 DirectShow, Linux는 V4L2로 열어야 카메라가 빠르게 잡힌다
         api = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_V4L2
         self.cap = cv2.VideoCapture(index, api)
+        if not self.cap.isOpened():
+            # 드라이버에 따라 이 방식으로 안 열리는 카메라가 있어 OpenCV 기본 방식으로 한 번 더 연다
+            self.cap.release()
+            self.cap = cv2.VideoCapture(index)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         if not self.cap.isOpened():

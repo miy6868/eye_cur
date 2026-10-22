@@ -6,9 +6,9 @@ Windows 또는 Linux + Chrome, 단일 모니터에서 사용하는 개인·연�
 
 ## 실행
 
-1. 프로젝트 폴더에서 PowerShell로 `./setup.ps1` 실행. 이미 설치를 완료했다면 생략합니다.
+1. 프로젝트 폴더를 `C:\eye_cur`처럼 **영어로만 된 경로**에 둡니다. 한글 폴더·한글 사용자 이름·OneDrive `바탕 화면` 아래에서는 MediaPipe가 모델 파일을 열지 못합니다. 그 폴더에서 일반 PowerShell 창(ISE·우클릭 실행 아님)을 열고 `powershell -ExecutionPolicy Bypass -File .\setup.ps1`을 실행합니다. 마지막의 모델 로딩 점검(`PASS`)까지 나와야 설치 완료입니다. `DLL load failed`가 나오면 [VC++ 재배포 패키지](https://aka.ms/vs/17/release/vc_redist.x64.exe)를 설치합니다. 점검의 `threads=2` 시간이 350ms를 넘으면 `.env`에 `CPU_THREADS=4`를 넣습니다. 폴더를 옮겼다면 setup을 다시 실행합니다. 이미 설치를 완료했다면 생략합니다.
 2. (선택, USE_JEV) 기본값은 API 키 없이 동작합니다. Jev를 쓰려면 `extension/content.js`의 `USE_JEV`를 `true`로 바꾸고 `.env`의 `TYPESAFE_API_KEY=` 뒤에 [TypeSafe 콘솔](https://console.typesafe.ai/)에서 발급한 키를 넣습니다. 키는 확장에 입력하지 않습니다.
-3. `./start.ps1` 실행. 콘솔에 표시되는 **연결 토큰**을 복사합니다.
+3. `powershell -ExecutionPolicy Bypass -File .\start.ps1` 실행. 콘솔에 표시되는 **연결 토큰**을 복사합니다(`runtime.json`에도 있습니다). Windows 10 콘솔에서 글자를 마우스로 선택한 채 두면 서버가 멈추므로, 복사 후 `Esc`를 누릅니다.
 4. Chrome에서 `chrome://extensions` → 개발자 모드 → **압축해제된 확장 프로그램을 로드합니다** → 이 프로젝트의 `extension` 폴더 선택.
 5. `http://127.0.0.1:8765/demo`에 접속합니다. 확장 아이콘 → 연결 토큰 입력 → **시작 / 다시 보정**.
 6. 머리·창 위치를 고정하고 초록 점을 차례로 바라봅니다. 가장자리까지 포함한 16점 보정과 별도의 5점 검증을 진행합니다. 점마다 0.9초 안정화 후 최소 12개의 안정된 표본을 모으므로 CPU 속도에 따라 약 1~2분 이상 걸릴 수 있습니다. 표본 수가 화면에 표시됩니다.
