@@ -8,7 +8,7 @@ command -v uv >/dev/null || { echo 'uv를 먼저 설치하세요: sudo pacman -S
 if [ ! -x .venv/bin/python ]; then
     # Arch 기본 Python 3.13에는 mediapipe 0.10.21 휠이 없어서 3.11을 따로 받는다
     uv python install 3.11
-    uv venv --python 3.11 .venv
+    uv venv --clear --python 3.11 .venv
 fi
 # GPU 없이 돌리므로 CPU 전용 torch만 받는다 (CUDA 용량 절약)
 uv pip install --python .venv/bin/python torch==2.7.1 --index-url https://download.pytorch.org/whl/cpu

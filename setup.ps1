@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 $env:UV_CACHE_DIR = Join-Path $PSScriptRoot '.uv-cache'
 $env:UV_PYTHON_INSTALL_DIR = Join-Path $PSScriptRoot '.python'
@@ -6,7 +6,7 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) { throw 'uv를 먼저 �
 if (-not (Test-Path '.venv/Scripts/python.exe')) {
     uv python install 3.11
     if ($LASTEXITCODE -ne 0) { throw 'Python 설치 실패' }
-    uv venv --python 3.11 .venv
+    uv venv --clear --python 3.11 .venv
     if ($LASTEXITCODE -ne 0) { throw '가상환경 생성 실패' }
 }
 uv pip install --python .venv/Scripts/python.exe torch==2.7.1 --index-url https://download.pytorch.org/whl/cpu
