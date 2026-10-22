@@ -13,6 +13,9 @@
     {name: '끔', create: () => null},
     {name: '이동평균(5)', create: () => new MovingAverage(5)},
     {name: '지수평균(0.45)', create: () => new ExponentialSmoothing(0.45)},
+    // 강한 필터: 시선 값이 초당 약 9번 오므로 둘 다 약 1초 분량을 섞는다. 떨림은 줄지만 커서가 늦게 따라온다
+    {name: '이동평균 강(10)', create: () => new MovingAverage(10)},
+    {name: '지수평균 강(0.2)', create: () => new ExponentialSmoothing(0.2)},
   ];
   let filterIndex = 2; // 기존 동작(0.55/0.45 지수평균)과 같게 시작
   let filter = filterChoices[filterIndex].create();
