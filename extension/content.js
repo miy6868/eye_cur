@@ -15,10 +15,10 @@
     // 이동평균 N개의 지연 ≈ (N-1)/2개, 지수평균 a의 지연 ≈ (1-a)/a개라서 같은 단계끼리 지연이 비슷하다
     {name: '이동평균 강(10)', create: () => new MovingAverage(10)},
     {name: '지수평균 강(0.2)', create: () => new ExponentialSmoothing(0.2)},
-    {name: '이동평균 최강(15)', create: () => new MovingAverage(15)},
-    {name: '지수평균 최강(0.12)', create: () => new ExponentialSmoothing(0.12)},
+    {name: '이동평균 최강(20)', create: () => new MovingAverage(20)},
+    {name: '지수평균 최강(0.1)', create: () => new ExponentialSmoothing(0.1)},
   ];
-  let filterIndex = 2; // 지수평균 강(0.2)으로 시작
+  let filterIndex = 4; // 지수평균 최강(0.1)으로 시작
   let filter = filterChoices[filterIndex].create();
   let trail = []; // 최근 3초의 {raw, filtered, time}: 떨림 계산과 그래프용
   const GRAPH_MS = 3000;
