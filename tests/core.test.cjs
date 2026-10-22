@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, fit, predict, distanceToRect, summarize, CalibrationCollector} = require('../extension/core.js');
+const {Blink, NearestSelector, fit, predict, distanceToRect, summarize, CalibrationCollector} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -136,4 +136,29 @@ test('16-point calibration selects nonlinearity only when held-out points improv
   }
   const linear = fit(samples.map(s => ({gaze: s.gaze, target: s.gaze.map(v => .5 + v)})));
   assert.equal(linear.degree, 1);
+});
+
+// NearestSelector: 후보는 GazeDOM.collect처럼 거리순으로 넣는다
+const near = (id, distance) => ({id, distance});
+
+test('NearestSelector picks the closest candidate after dwelling', () => {
+  const s = new NearestSelector();
+  s.update([near('a', 5), near('b', 50)], 0);
+  assert.equal(s.update([near('a', 5), near('b', 50)], 300).id, 'a');
+});
+
+test('NearestSelector does not select before 0.3 seconds', () => {
+  const s = new NearestSelector();
+  assert.equal(s.update([near('a', 5)], 0), null);
+  assert.equal(s.update([near('a', 5)], 299), null);
+});
+
+test('NearestSelector keeps the selection unless the new leader is 30px closer', () => {
+  const s = new NearestSelector();
+  s.update([near('a', 0)], 0); s.update([near('a', 0)], 300);
+  // b가 1등이지만 20px 차이뿐이라 0.3초가 지나도 a를 유지
+  s.update([near('b', 0), near('a', 20)], 400);
+  assert.equal(s.update([near('b', 0), near('a', 20)], 800).id, 'a');
+  // 30px 이상 차이가 나면 b로 바뀜
+  assert.equal(s.update([near('b', 0), near('a', 30)], 900).id, 'b');
 });

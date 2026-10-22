@@ -1,4 +1,5 @@
 """Continuously drain the camera so slow CPU inference cannot build a frame backlog."""
+import sys
 import threading
 import time
 
@@ -7,7 +8,9 @@ import cv2
 
 class LatestCamera:
     def __init__(self, index):
-        self.cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+        # Windows는 DirectShow, Linux는 V4L2로 열어야 카메라가 빠르게 잡힌다
+        api = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_V4L2
+        self.cap = cv2.VideoCapture(index, api)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         if not self.cap.isOpened():

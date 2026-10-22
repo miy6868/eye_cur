@@ -1,7 +1,10 @@
 (() => {
   if (globalThis.__gazeInstalled) return;
   globalThis.__gazeInstalled = true;
-  const {fit, predict, correctBias, Blink, CalibrationCollector} = globalThis.GazeCore;
+  // false: 서버(Jev API) 대신 직접 만든 NearestSelector로 대상을 고른다. API 키가 없어도 동작한다.
+  const USE_JEV = false;
+  const {fit, predict, correctBias, Blink, NearestSelector, CalibrationCollector} = globalThis.GazeCore;
+  const nearest = new NearestSelector();
   const trainingPoints = [.04, .35, .65, .96].flatMap((y, row) =>
     (row % 2 ? [.96, .65, .35, .04] : [.04, .35, .65, .96]).map(x => [x, y]));
   const validationPoints = [[.06, .06], [.94, .06], [.94, .94], [.06, .94], [.5, .5]];
@@ -23,6 +26,7 @@
   function invalidate() {
     selected = null; pending = null; history = []; smooth = null;
     requestNumber++; blink?.reset();
+    nearest.reset(); // 스크롤·탭 이동 뒤에는 머무름을 처음부터 다시 잰다
     if (shadow) shadow.querySelector('#target').hidden = true;
   }
   function end(message) {
@@ -225,6 +229,7 @@
     cursor.style.left = `${smooth[0]}px`; cursor.style.top = `${smooth[1]}px`;
     history.push({x: Math.round(smooth[0]), y: Math.round(smooth[1]), time: now});
     history = history.filter(p => now - p.time < 1200).slice(-8);
+    if (!USE_JEV) { chooseNearest(now); return; }
     const stable = history.slice(-3);
     if (pending || now - lastRequest < 400 || stable.length < 3 || now - stable[0].time < 200) return;
     if (stable.some(p => Math.hypot(p.x - smooth[0], p.y - smooth[1]) > 65)) return;
@@ -236,6 +241,14 @@
       history: history.map(p => ({x: p.x, y: p.y, ageMs: Math.round(now - p.time)})),
       candidates: items.map(({element, href, ...data}) => data)});
     if (!selected) status('Jev가 클릭 대상을 고르는 중…');
+  }
+  function chooseNearest(now) {
+    const item = nearest.update(candidates(...smooth), now);
+    // 머무름 0.3초가 지나기 전에는 선택이 없으므로 테두리를 그리지 않는다
+    if (!item) { status('대상을 0.3초 이상 바라보세요.'); return; }
+    selected = item;
+    showTarget(selected);
+    status(`선택: ${item.name || item.role} · 양눈을 0.6~2.0초 감았다 뜨세요.`);
   }
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
     // Always acknowledge receipt, including frames/status and obsolete contexts.

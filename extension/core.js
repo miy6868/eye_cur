@@ -1,5 +1,8 @@
 (() => {
   if (globalThis.GazeCore) return;
+  // NearestSelector 설정: 시연하면서 바꿔 볼 숫자는 여기 모아 둔다
+  const DWELL_MS = 300;        // 같은 요소가 이 시간 이상 계속 1등이어야 선택 (머무름)
+  const SWITCH_MARGIN_PX = 30; // 새 1등이 이만큼 더 가까워야 선택을 바꿈 (끈적임)
   function solve(matrix, vector) {
     const a = matrix.map((row, i) => [...row, vector[i]]);
     for (let i = 0; i < a.length; i++) {
@@ -142,9 +145,36 @@
       return click;
     }
   }
+  // Jev 대신 직접 만든 대상 선택: 시선에서 가장 가까운 요소를 고른다.
+  class NearestSelector {
+    constructor() { this.reset(); }
+    reset() {
+      this.leader = null;   // 지금 1등인 요소
+      this.since = 0;       // 그 요소가 1등이 된 시각
+      this.selected = null; // 최종 선택된 요소
+    }
+    // items: GazeDOM.collect 결과 (거리순 정렬), now: 밀리초 시각
+    update(items, now) {
+      const best = items[0];
+      if (!best) return this.selected;
+      // 1등이 바뀌면 머무름 시간을 처음부터 다시 잰다
+      if (best.id !== this.leader?.id) this.since = now;
+      this.leader = best;
+      // 0.3초 동안 계속 1등이 아니면 아직 선택하지 않는다 (시선 떨림으로 깜빡이는 것 방지)
+      if (now - this.since < DWELL_MS) return this.selected;
+      const current = this.selected && items.find(item => item.id === this.selected.id);
+      // 끈적임: 기존 선택이 아직 후보에 있으면 새 1등이 30px 이상 더 가까울 때만 바꾼다
+      if (current && best.distance + SWITCH_MARGIN_PX > current.distance) {
+        this.selected = current; // 같은 요소라도 최신 위치 정보로 갱신
+        return this.selected;
+      }
+      this.selected = best;
+      return this.selected;
+    }
+  }
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, correctBias, Blink, distanceToRect, summarize, CalibrationCollector};
+  globalThis.GazeCore = {fit, predict, correctBias, Blink, NearestSelector, distanceToRect, summarize, CalibrationCollector};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

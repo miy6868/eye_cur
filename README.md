@@ -1,18 +1,30 @@
 # Gaze + Jev — CPU 최소 구현
 
-웹캠 → **GazeTR-Hybrid** → 16점 정밀 보정 → 주변 DOM 요소 → Jev 선택 → 긴 눈 감기로 클릭.
+웹캠 → **GazeTR-Hybrid** → 16점 정밀 보정 → 주변 DOM 요소 → 가장 가까운 요소 선택(NearestSelector, Jev는 선택) → 긴 눈 감기로 클릭.
 
-Windows + Chrome, 단일 모니터에서 사용하는 개인·연구용 시제품입니다. **GazeTR-Pure는 사용하지 않습니다.** CNN+Transformer인 공식 GazeTR-Hybrid 코드와 `GazeTR-H-ETH.pt`를 **CPU 전용**으로 실행하며 CUDA를 설치하거나 사용하지 않습니다.
+Windows 또는 Linux + Chrome, 단일 모니터에서 사용하는 개인·연구용 시제품입니다. **GazeTR-Pure는 사용하지 않습니다.** CNN+Transformer인 공식 GazeTR-Hybrid 코드와 `GazeTR-H-ETH.pt`를 **CPU 전용**으로 실행하며 CUDA를 설치하거나 사용하지 않습니다.
 
 ## 실행
 
 1. 프로젝트 폴더에서 PowerShell로 `./setup.ps1` 실행. 이미 설치를 완료했다면 생략합니다.
-2. `.env`의 `TYPESAFE_API_KEY=` 뒤에 [TypeSafe 콘솔](https://console.typesafe.ai/)에서 발급한 API 키를 넣습니다. 키는 확장에 입력하지 않습니다.
+2. (선택, USE_JEV) 기본값은 API 키 없이 동작합니다. Jev를 쓰려면 `extension/content.js`의 `USE_JEV`를 `true`로 바꾸고 `.env`의 `TYPESAFE_API_KEY=` 뒤에 [TypeSafe 콘솔](https://console.typesafe.ai/)에서 발급한 키를 넣습니다. 키는 확장에 입력하지 않습니다.
 3. `./start.ps1` 실행. 콘솔에 표시되는 **연결 토큰**을 복사합니다.
 4. Chrome에서 `chrome://extensions` → 개발자 모드 → **압축해제된 확장 프로그램을 로드합니다** → 이 프로젝트의 `extension` 폴더 선택.
 5. `http://127.0.0.1:8765/demo`에 접속합니다. 확장 아이콘 → 연결 토큰 입력 → **시작 / 다시 보정**.
 6. 머리·창 위치를 고정하고 초록 점을 차례로 바라봅니다. 가장자리까지 포함한 16점 보정과 별도의 5점 검증을 진행합니다. 점마다 0.9초 안정화 후 최소 12개의 안정된 표본을 모으므로 CPU 속도에 따라 약 1~2분 이상 걸릴 수 있습니다. 표본 수가 화면에 표시됩니다.
 7. 버튼을 바라봅니다. 초록 테두리가 원하는 요소에 생기면 **양눈을 0.6~2.0초 감았다 뜹니다**. 눈을 뜰 때 한 번 클릭합니다. `ESC` 또는 **중지** 버튼으로 종료합니다.
+
+### Linux (Arch 등)
+
+Arch 기본 Python 3.13에는 `mediapipe 0.10.21` 휠이 없어 `setup.sh`가 uv로 Python 3.11 가상환경(`.venv/bin/python`)을 따로 만듭니다. `uv`가 필요합니다(`sudo pacman -S uv`).
+
+```bash
+./setup.sh                              # 1번 대신 (CPU torch 2.7.1 + requirements.txt)
+.venv/bin/python scripts/check_camera.py  # 카메라·얼굴·시선 출력 확인
+./start.sh                              # 3번 대신
+```
+
+카메라는 Windows에서 DirectShow, Linux에서 V4L2로 엽니다. 나머지 4~7번은 같습니다.
 
 PowerShell 실행 정책 때문에 스크립트를 열 수 없다면 해당 실행에만 `powershell -ExecutionPolicy Bypass -File .\start.ps1`을 사용합니다.
 
@@ -27,7 +39,8 @@ PowerShell 실행 정책 때문에 스크립트를 열 수 없다면 해당 실�
 - 16점 자료에서 선형 변환과 정규화된 2차 회귀를 비교합니다. 한 점씩 제외한 교차검증에서 오차가 15% 이상 개선될 때만 비선형 보정을 사용합니다. 별도의 5점에서 실제 오차를 검증하고 픽셀 단위로 표시합니다. 사용 중 패널의 **다시 보정** 버튼으로 재측정할 수 있습니다.
 - 검색 결과 같은 제목 링크는 제목의 실제 텍스트 영역을 후보로 삼고 해당 제목의 상위 링크를 클릭합니다. 여러 줄 링크, 바깥 영역 높이가 0인 링크, 중첩된 클릭 역할을 처리합니다. 가려진 링크와 클릭 직전 목적지가 바뀐 링크는 제외합니다.
 - 여러 사이트에서 자동으로 이어지기 위해 HTTP/HTTPS 사이트 접근 권한을 사용합니다. DOM 수집과 클릭은 현재 보고 있는 탭에만 적용하며, 이전 탭에서 늦게 도착한 Jev 응답은 버립니다. 보정 도중 탭을 바꾸면 미완료 보정은 새 탭에서 다시 시작합니다.
-- 시선 주변의 보이고 활성화된 요소 최대 8개를 Jev `choice` 질문에 넣습니다. 선택 불가를 뜻하는 `none`을 포함합니다. 호출은 최대 초당 2.5회이며 연속 사용 시 API 비용이 발생합니다.
+- 기본(`USE_JEV = false`): 시선 주변 후보 중 가장 가까운 요소가 0.3초 이상 계속 1등이면 선택하고, 이미 선택이 있으면 새 1등이 30px 이상 더 가까울 때만 바꿉니다. 숫자는 `extension/core.js` 위쪽 상수입니다. 서버로 아무것도 보내지 않으므로 API 키와 비용이 필요 없습니다.
+- `USE_JEV = true`일 때: 시선 주변의 보이고 활성화된 요소 최대 8개를 Jev `choice` 질문에 넣습니다. 선택 불가를 뜻하는 `none`을 포함합니다. 호출은 최대 초당 2.5회이며 연속 사용 시 API 비용이 발생합니다.
 - Jev에는 후보의 이름·역할·사각형·거리와 최근 시선 좌표만 전송합니다. 영상, 입력 필드 값, 페이지 전체 HTML, API 키는 전송 자료에 포함하지 않습니다. 단, 버튼 등의 공개 텍스트 자체가 민감한 페이지에서는 그 텍스트가 API에 전달됩니다.
 - `jev-latest` API 실패·키 누락·지연 시 선택을 보류합니다. 다른 선택 알고리즘으로 자동 대체하지 않습니다.
 - 깜빡임 직전 강조된 요소를 고정합니다. 자연스러운 짧은 깜빡임, 너무 긴 눈 감기, 프레임 단절, 얼굴 상실, 스크롤·DOM 변경 후에는 클릭을 취소합니다.
@@ -43,7 +56,7 @@ PowerShell 실행 정책 때문에 스크립트를 열 수 없다면 해당 실�
 
 0.2.0에서는 탭 전환·페이지 이동·이전 응답 차단, 16점 보정·5점 검증, 검색 제목 형태의 DOM 클릭을 자동 테스트합니다. Google 실제 검색 페이지는 테스트 환경의 자동 접속 차단으로 확인하지 못했으며, 여러 줄 제목과 중첩된 링크를 재현한 페이지에서 검증했습니다. 개인별 정밀도 개선은 실제 재보정 결과로 판단해야 합니다.
 
-실제 Jev API 호출과 사용자별 클릭 정확도는 API 키 설정 및 사용자 보정 후 확인해야 합니다.
+실제 Jev API 호출(USE_JEV 사용 시)과 사용자별 클릭 정확도는 사용자 보정 후 확인해야 합니다.
 
 ```powershell
 node --test tests/core.test.cjs tests/worker.test.cjs
@@ -51,9 +64,11 @@ node --test tests/core.test.cjs tests/worker.test.cjs
 .venv/Scripts/python.exe scripts/check_cpu.py
 ```
 
+Linux에서는 `.venv/Scripts/python.exe` 대신 `.venv/bin/python`을 씁니다.
+
 선택 사항: Playwright가 설치된 환경에서 `node tests/browser.cjs`로 실제 DOM에 가상 시선과 Jev 응답을 주입하는 통합 테스트를 실행합니다. `PLAYWRIGHT_PATH`와 `CHROME_PATH`로 실행 경로를 지정할 수 있습니다. 이 테스트는 실제 사용자 정확도나 Jev 품질을 측정하지 않습니다.
 
-카메라가 열리지 않으면 Windows 카메라 권한, 다른 프로그램의 카메라 점유, `.env`의 `CAMERA_INDEX`를 확인합니다. API 키를 바꾸면 서버를 다시 시작합니다. CPU 스레드는 `.env`의 `CPU_THREADS`로 조절합니다.
+카메라가 열리지 않으면 Windows 카메라 권한(Linux는 `/dev/video*` 접근 권한, 보통 `video` 그룹), 다른 프로그램의 카메라 점유, `.env`의 `CAMERA_INDEX`를 확인합니다. API 키를 바꾸면 서버를 다시 시작합니다. CPU 스레드는 `.env`의 `CPU_THREADS`로 조절합니다.
 
 ### 0.2.7 적용
 
