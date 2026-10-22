@@ -11,13 +11,14 @@
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
     {name: '끔', create: () => null},
-    {name: '이동평균(5)', create: () => new MovingAverage(5)},
-    {name: '지수평균(0.45)', create: () => new ExponentialSmoothing(0.45)},
-    // 강한 필터: 시선 값이 초당 약 9번 오므로 둘 다 약 1초 분량을 섞는다. 떨림은 줄지만 커서가 늦게 따라온다
+    // 시선 값은 초당 약 9번 온다. 약한 필터(5개, 0.45)는 떨림이 남아서 쓰기 어려워 '강'부터 둔다
+    // 이동평균 N개의 지연 ≈ (N-1)/2개, 지수평균 a의 지연 ≈ (1-a)/a개라서 같은 단계끼리 지연이 비슷하다
     {name: '이동평균 강(10)', create: () => new MovingAverage(10)},
     {name: '지수평균 강(0.2)', create: () => new ExponentialSmoothing(0.2)},
+    {name: '이동평균 최강(15)', create: () => new MovingAverage(15)},
+    {name: '지수평균 최강(0.12)', create: () => new ExponentialSmoothing(0.12)},
   ];
-  let filterIndex = 2; // 기존 동작(0.55/0.45 지수평균)과 같게 시작
+  let filterIndex = 2; // 지수평균 강(0.2)으로 시작
   let filter = filterChoices[filterIndex].create();
   let trail = []; // 최근 3초의 {raw, filtered, time}: 떨림 계산과 그래프용
   const GRAPH_MS = 3000;
