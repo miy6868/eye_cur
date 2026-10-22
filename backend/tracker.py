@@ -104,7 +104,7 @@ class Tracker:
         self.camera_config = None
         intrinsics = os.getenv("CAMERA_INTRINSICS")
         if intrinsics:
-            self.camera_config = json.loads(Path(intrinsics).read_text())
+            self.camera_config = json.loads(Path(intrinsics).read_text(encoding="utf-8-sig"))
         try:
             self.cap = LatestCamera(int(os.getenv("CAMERA_INDEX", "0")))
         except Exception:
