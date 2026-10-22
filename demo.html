@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Gaze + Jev 테스트</title>
+<style>body{margin:40px;background:#f3f6fa;color:#162539;font:17px/1.6 system-ui}main{max-width:1000px;margin:auto}h1{margin-bottom:8px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:55px;margin:60px 0}button{padding:36px 12px;font:inherit;border:1px solid #c0cede;border-radius:14px;background:white;cursor:pointer}button:hover{background:#e6efff}output{display:block;padding:20px;background:#152b45;color:#fff;border-radius:12px}input{padding:12px;font:inherit}</style>
+<main><h1>시선으로 고르고, 눈 감기로 클릭</h1><p>확장 프로그램에서 시작한 뒤 초록 보정 점을 따라 보세요. 아래 버튼을 바라보고 강조되면 양눈을 0.6~1.2초 감았다 뜨세요.</p>
+<div class="grid"><button>왼쪽 위</button><button>가운데 위</button><button>오른쪽 위</button><button>왼쪽 아래</button><button>가운데 아래</button><button>오른쪽 아래</button></div>
+<output id="result" aria-live="polite">아직 클릭하지 않았습니다.</output><p><label>입력칸 포커스 테스트 <input placeholder="시선으로 선택할 입력칸"></label></p><p>중지: ESC · 페이지 이동 후에는 다시 시작하세요.</p></main>
+<script>let count=0;document.querySelectorAll('button').forEach(button=>button.onclick=()=>{document.querySelector('#result').textContent=`${++count}회 클릭: ${button.textContent}`;});</script></html>

@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "GazeTR-Hybrid + Jev · CPU",
+  "version": "0.2.7",
+  "description": "시선으로 선택하고 양눈을 길게 감아 클릭합니다. 로컬 CPU 서버가 필요합니다.",
+  "minimum_chrome_version": "116",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {"service_worker": "worker.js"},
+  "action": {"default_popup": "popup.html", "default_title": "Gaze + Jev"}
+}

@@ -1,0 +1,12 @@
+.venv/
+.python/
+.uv-cache/
+.cache/
+__pycache__/
+*.pyc
+.env
+models/*
+!models/.gitkeep
+!models/GazeTR-H-ETH.pt
+runtime.json
+*.log
