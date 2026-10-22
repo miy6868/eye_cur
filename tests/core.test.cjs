@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, fit, predict, distanceToRect, summarize, CalibrationCollector} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, fit, predict, distanceToRect, summarize, CalibrationCollector} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -190,4 +190,33 @@ test('filters forget old points after reset', () => {
 test('jitter is the standard deviation of points in pixels', () => {
   assert.equal(jitter([[5, 5]]), 0);
   assert.equal(jitter([[0, 0], [6, 8]]), 5);
+});
+
+// MouthClick: 0.1초마다 프레임이 오고, open초 동안 벌렸다가 다문다
+function mouthClick(openSeconds) {
+  const m = new MouthClick();
+  m.update({valid: true, mouthOpen: false, time: 0}, 'a');
+  for (let time = 100; time <= 100 + openSeconds * 1000; time += 100) m.update({valid: true, mouthOpen: true, time}, 'a');
+  return {m, clicked: m.update({valid: true, mouthOpen: false, time: 200 + openSeconds * 1000}, 'b')};
+}
+
+test('MouthClick ignores a 0.2 second opening like speech', () => {
+  const {m, clicked} = mouthClick(0.2);
+  assert.equal(clicked, null);
+  assert.equal(m.result, 'short');
+});
+
+test('MouthClick clicks the target fixed when the mouth opened after 1 second', () => {
+  const {m, clicked} = mouthClick(1);
+  assert.equal(clicked, 'a');
+  // 0.8초 쿨다운 안에 다시 벌렸다 다물어도 클릭하지 않는다
+  for (let time = 1300; time <= 1900; time += 100) m.update({valid: true, mouthOpen: true, time}, 'a');
+  assert.equal(m.update({valid: true, mouthOpen: false, time: 1950}, 'a'), null);
+  assert.equal(m.result, 'cooldown');
+});
+
+test('MouthClick cancels an opening longer than 2 seconds', () => {
+  const {m, clicked} = mouthClick(2.5);
+  assert.equal(clicked, null);
+  assert.equal(m.result, 'long');
 });

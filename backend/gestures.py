@@ -2,6 +2,12 @@
 from collections import deque
 import math
 
+# 입 벌림 비율(MAR) 문턱값. 두 값을 다르게 둬야 경계 근처에서 상태가 왔다 갔다 하지 않는다
+MOUTH_OPEN_MAR = 0.30    # 이보다 커지면 '벌림'
+MOUTH_CLOSED_MAR = 0.20  # 이보다 작아지면 '다뭄'
+# MediaPipe FaceMesh 번호: 13 = 윗입술 안쪽 가운데, 14 = 아랫입술 안쪽 가운데, 61·291 = 양쪽 입꼬리
+LIP_TOP, LIP_BOTTOM, MOUTH_LEFT, MOUTH_RIGHT = 13, 14, 61, 291
+
 
 class EyeState:
     def __init__(self):
@@ -32,3 +38,26 @@ class EyeState:
 
     def lost(self):
         self.closed = False
+
+
+def mouth_ratio(points):
+    """입 벌림 비율 = 입술 안쪽 위·아래 거리 ÷ 입 너비. 얼굴이 멀어져도 비율은 그대로다."""
+    height = math.dist(points[LIP_TOP], points[LIP_BOTTOM])
+    width = math.dist(points[MOUTH_LEFT], points[MOUTH_RIGHT])
+    return height / max(width, 1e-6)
+
+
+class MouthState:
+    def __init__(self):
+        self.open = False
+
+    def update(self, mar):
+        # 두 문턱값 사이(0.20~0.30)에서는 이전 상태를 그대로 유지한다
+        if self.open and mar < MOUTH_CLOSED_MAR:
+            self.open = False
+        elif not self.open and mar > MOUTH_OPEN_MAR:
+            self.open = True
+        return {"mouthOpen": self.open, "mar": round(mar, 3)}
+
+    def lost(self):
+        self.open = False

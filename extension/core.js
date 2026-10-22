@@ -3,6 +3,10 @@
   // NearestSelector 설정: 시연하면서 바꿔 볼 숫자는 여기 모아 둔다
   const DWELL_MS = 300;        // 같은 요소가 이 시간 이상 계속 1등이어야 선택 (머무름)
   const SWITCH_MARGIN_PX = 30; // 새 1등이 이만큼 더 가까워야 선택을 바꿈 (끈적임)
+  // MouthClick 설정
+  const MOUTH_MIN_MS = 500;       // 이보다 짧게 벌리면 말하는 중으로 보고 무시
+  const MOUTH_MAX_MS = 2000;      // 이보다 오래 벌리면 클릭 취소
+  const MOUTH_COOLDOWN_MS = 800;  // 클릭 직후 연속 클릭 방지
   function solve(matrix, vector) {
     const a = matrix.map((row, i) => [...row, vector[i]]);
     for (let i = 0; i < a.length; i++) {
@@ -145,6 +149,32 @@
       return click;
     }
   }
+  // 입 벌리기 클릭: Blink와 같은 구조. 벌렸다가 다무는 순간 클릭한다
+  class MouthClick {
+    constructor() { this.reset(); this.cooldown = 0; }
+    reset() { this.started = null; this.target = null; this.previousTime = null; this.result = null; }
+    get active() { return this.started !== null; }
+    update({valid, mouthOpen, time}, target) {
+      this.result = null;
+      // 얼굴을 놓치거나 프레임이 0.4초 넘게 끊기면 진행 중이던 클릭을 취소한다
+      if (!valid || !Number.isFinite(time) || (this.previousTime !== null && (time - this.previousTime > 400 || time <= this.previousTime))) {
+        this.reset(); return null;
+      }
+      this.previousTime = time;
+      if (mouthOpen) {
+        // 벌리는 순간의 대상을 고정: 입을 벌리는 동안 시선이 흔들려도 대상이 바뀌지 않는다
+        if (this.started === null) { this.started = time; this.target = target; }
+        return null;
+      }
+      if (this.started === null) return null;
+      const elapsed = time - this.started;
+      const click = elapsed >= MOUTH_MIN_MS && elapsed <= MOUTH_MAX_MS && time >= this.cooldown ? this.target : null;
+      this.result = click ? 'clicked' : !this.target ? 'no-target' : elapsed < MOUTH_MIN_MS ? 'short' : elapsed > MOUTH_MAX_MS ? 'long' : 'cooldown';
+      this.started = null; this.target = null;
+      if (click) this.cooldown = time + MOUTH_COOLDOWN_MS;
+      return click;
+    }
+  }
   // 떨림 제거 필터 1: 최근 size개 점의 평균
   class MovingAverage {
     constructor(size) { this.size = size; this.reset(); }
@@ -204,6 +234,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, correctBias, Blink, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, distanceToRect, summarize, CalibrationCollector};
+  globalThis.GazeCore = {fit, predict, correctBias, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, distanceToRect, summarize, CalibrationCollector};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

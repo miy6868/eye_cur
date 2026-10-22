@@ -1,5 +1,5 @@
 import unittest
-from backend.gestures import EyeState
+from backend.gestures import EyeState, MouthState, mouth_ratio
 
 
 class EyeStateTests(unittest.TestCase):
@@ -39,3 +39,17 @@ class EyeStateTests(unittest.TestCase):
         eyes = self.ready()
         eyes.update([.1, .1]); eyes.lost()
         self.assertFalse(eyes.closed)
+
+
+class MouthStateTests(unittest.TestCase):
+    def test_values_between_thresholds_keep_the_previous_state(self):
+        mouth = MouthState()
+        self.assertFalse(mouth.update(.25)['mouthOpen'])  # 다문 상태에서 0.25 → 그대로 다뭄
+        self.assertTrue(mouth.update(.35)['mouthOpen'])   # 0.30 초과 → 벌림
+        self.assertTrue(mouth.update(.25)['mouthOpen'])   # 벌린 상태에서 0.25 → 그대로 벌림
+        self.assertFalse(mouth.update(.15)['mouthOpen'])  # 0.20 미만 → 다뭄
+
+    def test_ratio_uses_inner_lips_over_mouth_corners(self):
+        points = [(0, 0)] * 468
+        points[13], points[14], points[61], points[291] = (50, 100), (50, 120), (0, 110), (100, 110)
+        self.assertAlmostEqual(mouth_ratio(points), .2)

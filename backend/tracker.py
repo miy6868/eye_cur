@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "vendor"))
 from model import Model  # noqa: E402
 from backend.camera import LatestCamera
-from backend.gestures import EyeState
+from backend.gestures import EyeState, MouthState, mouth_ratio
 
 
 def load_model():
@@ -97,6 +97,7 @@ class Tracker:
             max_num_faces=1, refine_landmarks=False,
             min_detection_confidence=0.6, min_tracking_confidence=0.6)
         self.eyes = EyeState()
+        self.mouth = MouthState()
         self.gaze_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gaze-inference")
         self.gaze_future = None
         self.gaze_blocked_until = 0
@@ -114,8 +115,9 @@ class Tracker:
         ok, frame, stamp = self.cap.read()
         if not ok:
             self.eyes.lost()
+            self.mouth.lost()
             self.gaze_blocked_until = stamp + 250
-            return {"type": "frame", "valid": False, "time": stamp,
+            return {"type": "frame", "valid": False, "time": stamp, "mouthOpen": False, "mar": None,
                     "error": "카메라 프레임을 읽지 못했습니다."}
         height, width = frame.shape[:2]
         if self.camera_config:
@@ -129,14 +131,17 @@ class Tracker:
         result = self.mesh.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         if not result.multi_face_landmarks:
             self.eyes.lost()
+            self.mouth.lost()
             self.gaze_blocked_until = stamp + 250
-            return {"type": "frame", "valid": False, "time": stamp}
+            return {"type": "frame", "valid": False, "time": stamp, "mouthOpen": False, "mar": None}
         points = np.array([[p.x * width, p.y * height]
                            for p in result.multi_face_landmarks[0].landmark])
         ratios = [eye_ratio(points, [33, 160, 158, 133, 153, 144]),
                   eye_ratio(points, [362, 385, 387, 263, 373, 380])]
         eyes = self.eyes.update(ratios)
-        payload = {"type": "frame", "valid": True, "time": stamp, **eyes,
+        # 입 상태는 눈 상태 때문에 아래에서 일찍 return해도 항상 payload에 들어간다
+        mouth = self.mouth.update(mouth_ratio(points))
+        payload = {"type": "frame", "valid": True, "time": stamp, **eyes, **mouth,
                    "ear": round(float(np.mean(ratios)), 3)}
         if eyes["closing"] or not eyes["eyesReady"]:
             self.gaze_blocked_until = stamp + 250

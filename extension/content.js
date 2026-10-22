@@ -3,7 +3,10 @@
   globalThis.__gazeInstalled = true;
   // false: 서버(Jev API) 대신 직접 만든 NearestSelector로 대상을 고른다. API 키가 없어도 동작한다.
   const USE_JEV = false;
-  const {fit, predict, correctBias, Blink, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, CalibrationCollector} = globalThis.GazeCore;
+  // 클릭 방식: 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 기존 양눈 감기 클릭
+  const CLICK_MODE = 'mouth';
+  const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
+  const {fit, predict, correctBias, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, CalibrationCollector} = globalThis.GazeCore;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -22,7 +25,7 @@
   const calibrationPoints = [...trainingPoints, ...validationPoints];
   const trainingCount = trainingPoints.length, validationCount = validationPoints.length;
   let currentContext;
-  let running = false, host, shadow, model, calibration, smooth, blink;
+  let running = false, host, shadow, model, calibration, smooth, clicker;
   let selected = null, pending = null, requestNumber = 0, lastRequest = 0;
   let lastFrame = 0, history = [], timer, layout, lastStatus = '';
   let ids = new WeakMap(), idNumber = 0;
@@ -36,7 +39,7 @@
   }
   function invalidate() {
     selected = null; pending = null; history = []; resetFilter();
-    requestNumber++; blink?.reset();
+    requestNumber++; clicker?.reset();
     nearest.reset(); // 스크롤·탭 이동 뒤에는 머무름을 처음부터 다시 잰다
     if (shadow) shadow.querySelector('#target').hidden = true;
   }
@@ -58,7 +61,7 @@
   function stop(message) { end(message); send({type: 'stop', reason: message}); }
   function geometry() { return [innerWidth, innerHeight, screenX, screenY, devicePixelRatio, visualViewport?.scale || 1].join(','); }
   function start(message = {}) {
-    end(); currentContext = message.context; running = true; model = null; resetFilter(); blink = new Blink();
+    end(); currentContext = message.context; running = true; model = null; resetFilter(); clicker = CLICK_MODE === 'mouth' ? new MouthClick() : new Blink();
     ids = new WeakMap(); idNumber = 0; lastStatus = ''; lastFrame = performance.now();
     lastRequest = 0; layout = geometry();
     const saved = message.calibration;
@@ -83,7 +86,7 @@
       </style>
       <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요.<br>보정은 자동으로 진행됩니다.</div><div id="dot"></div></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
-      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
+      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
     shadow.querySelector('#stop').onclick = () => stop('중지됨');
     shadow.querySelector('#recalibrate').onclick = () => send({type: 'recalibrate'});
@@ -99,7 +102,7 @@
       }
       if (pending && performance.now() - pending.sent > 1800) {
         pending = null; requestNumber++;
-        if (!blink.active) status('Jev 응답 지연 · 선택 보류');
+        if (!clicker.active) status('Jev 응답 지연 · 선택 보류');
       }
     }, 100);
   }
@@ -156,7 +159,7 @@
         model.error = Math.max(model.error, rms);
         calibration = null; shadow.querySelector('#veil').hidden = true;
         send({type: 'calibrated', model, layout});
-        status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · 검증 오차 ${pixelRms}px · 양눈을 0.6~2.0초 감았다 뜨면 클릭합니다.`);
+        status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · 검증 오차 ${pixelRms}px · ${CLICK_HINT}.`);
         return;
       }
     } else calibration.samples.push({gaze, target});
@@ -204,6 +207,9 @@
     const now = performance.now(); lastFrame = now;
     shadow.querySelector('#eyes').textContent = !message.valid ? '눈 추적 끊김' : message.eyesReady === false ? '눈 뜬 상태 학습 중' : message.closed ? '양눈 감음' : message.closing ? '눈 감는 중' : '눈 뜸';
     if (Number.isFinite(message.openness)) shadow.querySelector('#eyes').textContent += ` · 눈 열림 ${Math.round(message.openness * 100)}%`;
+    // 문턱값(벌림 > 0.30, 다뭄 < 0.20)을 맞출 수 있게 MAR 값을 그대로 보여 준다
+    const mar = Number.isFinite(message.mar) ? message.mar.toFixed(2) : '-';
+    shadow.querySelector('#mouth').textContent = `입 ${message.mouthOpen ? '벌림' : '다뭄'} · MAR ${mar}`;
     if (!document.hasFocus() || document.hidden || !message.valid) {
       invalidate(); hideCursor();
       if (calibration) calibration.collector.resumeAt = now + 350;
@@ -213,20 +219,22 @@
     if (calibration) { calibrate(message, now); return; }
     if (!model) return;
     if (selected && !GazeDOM.unchanged(selected)) invalidate();
-    const clicked = blink.update(message, selected);
-    if (blink.active) {
+    const clicked = clicker.update(message, selected);
+    if (clicker.active) {
       showTarget(selected);
-      if (blink.started === null) status(selected ? '눈 감기 시작 · 클릭 대상 고정' : '선택된 대상 없음 · 먼저 초록 테두리를 확인하세요.');
+      if (CLICK_MODE === 'mouth') mouthStatus(message.time);
+      else if (clicker.started === null) status(selected ? '눈 감기 시작 · 클릭 대상 고정' : '선택된 대상 없음 · 먼저 초록 테두리를 확인하세요.');
       else {
-        const elapsed = message.time - blink.started;
+        const elapsed = message.time - clicker.started;
         status(!selected ? '눈 감기 감지됨 · 선택된 대상이 없어 클릭하지 않습니다.' : elapsed <= 2000 ? `대상 고정 · 눈 감기 ${(elapsed / 1000).toFixed(1)}초 · 0.6~2.0초 안에 뜨세요` : '너무 오래 감음 · 클릭 취소');
       }
       return;
     }
     if (clicked) { click(clicked); return; }
-    if (blink.result === 'no-target') status('눈 감기는 인식됐지만 선택된 대상이 없습니다.');
-    else if (blink.result === 'short') status('짧은 깜빡임 · 클릭하려면 0.6초 이상 감아 주세요.');
-    else if (blink.result === 'long') status('2초를 넘겨 클릭을 취소했습니다.');
+    if (CLICK_MODE === 'mouth') mouthResult();
+    else if (clicker.result === 'no-target') status('눈 감기는 인식됐지만 선택된 대상이 없습니다.');
+    else if (clicker.result === 'short') status('짧은 깜빡임 · 클릭하려면 0.6초 이상 감아 주세요.');
+    else if (clicker.result === 'long') status('2초를 넘겨 클릭을 취소했습니다.');
     if (!message.gaze) return;
     const point = predict(model, message.gaze);
     if (point.some(v => !Number.isFinite(v))) {
@@ -260,6 +268,17 @@
       history: history.map(p => ({x: p.x, y: p.y, ageMs: Math.round(now - p.time)})),
       candidates: items.map(({element, href, ...data}) => data)});
     if (!selected) status('Jev가 클릭 대상을 고르는 중…');
+  }
+  function mouthStatus(time) {
+    const elapsed = time - clicker.started;
+    if (!clicker.target) status('입 벌림 감지 · 선택된 대상이 없어 클릭하지 않습니다.');
+    else if (elapsed <= 2000) status(`대상 고정 · 입 벌림 ${(elapsed / 1000).toFixed(1)}초 · 0.5~2.0초 안에 다무세요`);
+    else status('너무 오래 벌림 · 클릭 취소');
+  }
+  function mouthResult() {
+    if (clicker.result === 'no-target') status('입 벌림은 인식됐지만 선택된 대상이 없습니다.');
+    else if (clicker.result === 'short') status('짧게 벌림(말하기 등)은 무시합니다 · 클릭하려면 0.5초 이상 벌려 주세요.');
+    else if (clicker.result === 'long') status('2초를 넘겨 클릭을 취소했습니다.');
   }
   function resetFilter() {
     smooth = null;
@@ -318,7 +337,7 @@
     if (!item) { status('대상을 0.3초 이상 바라보세요.'); return; }
     selected = item;
     showTarget(selected);
-    status(`선택: ${item.name || item.role} · 양눈을 0.6~2.0초 감았다 뜨세요.`);
+    status(`선택: ${item.name || item.role} · ${CLICK_HINT}.`);
   }
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
     // Always acknowledge receipt, including frames/status and obsolete contexts.
@@ -333,14 +352,14 @@
     if (message.type === 'frame') frame(message);
     if (message.type === 'selection' && pending?.requestId === message.requestId) {
       const request = pending; pending = null;
-      if (blink.active || !document.hasFocus() || performance.now() - lastFrame > 400) return;
+      if (clicker.active || !document.hasFocus() || performance.now() - lastFrame > 400) return;
       const item = request.items.find(c => c.id === message.id);
       if (!item || !smooth || Math.hypot(...smooth.map((v, k) => v - request.gaze[k])) > 80 ||
           !GazeDOM.unchanged(item)) {
         status(selected ? `마지막 선택 유지: ${selected.name || selected.role}` : message.error || 'Jev 선택 보류 · 대상을 계속 바라보세요.'); return;
       }
       selected = {...item}; showTarget(selected);
-      status(`선택: ${item.name || item.role} · 양눈을 0.6~2.0초 감았다 뜨세요.`);
+      status(`선택: ${item.name || item.role} · ${CLICK_HINT}.`);
     }
   });
   document.addEventListener('keydown', event => { if (host && event.key === 'Escape') { event.preventDefault(); stop('ESC로 중지됨'); } }, true);
