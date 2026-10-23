@@ -68,19 +68,18 @@ test('distance uses element boundary, not only its center', () => {
   assert.equal(distanceToRect(120, 30, [10, 10, 100, 40]), 10);
 });
 
-test('calibration rejects sparse and noisy readings but removes isolated outliers', () => {
+test('calibration rejects sparse readings but removes isolated outliers', () => {
   const steady = Array.from({length: 14}, (_, i) => [.1 + (i % 3 - 1) * .001, -.2]);
-  assert.equal(summarize(steady.slice(0, 6)).ready, false);
+  assert.equal(summarize(steady.slice(0, 5)).ready, false);
   const result = summarize([...steady, [.9, .8], [-.6, -.7]]);
   assert.equal(result.ready, true);
   assert.ok(Math.abs(result.gaze[0] - .1) < .002);
   assert.equal(result.count, 14);
-  assert.equal(summarize(Array.from({length: 20}, (_, i) => [i * .025, Math.sin(i) * .1])).ready, false);
 });
 test('CPU-delayed frames from the previous point are excluded', () => {
   const c = new CalibrationCollector(1000);
   // Arrives after settling but was captured before settling finished.
-  c.add({valid: true, gaze: [4, 4], captureAgeMs: 400}, 2100);
+  c.add({valid: true, gaze: [4, 4], captureAgeMs: 400}, 1900);
   assert.equal(c.readings.length, 0);
   let result;
   for (let i = 0; i < 14; i++) result = c.add({valid: true, gaze: [.1, .2], captureAgeMs: 120}, 2200 + i * 150);
@@ -96,22 +95,25 @@ test('closed eyes and immediate reopening do not enter calibration data', () => 
   assert.equal(c.readings.length, 1);
 });
 
-test('stationary model jitter converges with more samples, but drift and broad noise do not', () => {
-  const jitter = Array.from({length: 24}, (_, i) => [.1 + (i % 2 ? .045 : -.045), .2]);
-  assert.equal(summarize(jitter.slice(0, 12)).ready, false);
-  const stable = summarize(jitter);
-  assert.equal(stable.ready, true);
-  assert.ok(Math.abs(stable.gaze[0] - .1) < 1e-8);
-  assert.equal(summarize(Array.from({length: 24}, (_, i) => [.1 + i * .003, .2])).ready, false);
-  assert.equal(summarize(jitter.map(g => [(g[0] - .1) * 3, .2])).ready, false);
-});
-
-test('slow CPU sampling can accumulate enough calibration samples', () => {
+test('each point collects for a fixed 1 second, then uses the median', () => {
   const collector = new CalibrationCollector(0);
   let result;
-  for (let i = 0; i < 12; i++) result = collector.add({valid: true, gaze: [.1, .2], captureAgeMs: 200}, 1200 + i * 600);
+  // 0.6초 안정화 뒤부터 0.1초마다 표본. 1초가 안 됐으면 표본이 충분해도 기다린다
+  for (let i = 0; i < 10; i++) result = collector.add({valid: true, gaze: [.1 + (i % 2 ? .04 : -.04), .2]}, 600 + i * 100);
+  assert.equal(result.ready, false);
+  result = collector.add({valid: true, gaze: [.1, .2]}, 1600);
   assert.equal(result.ready, true);
-  assert.equal(result.count, 12);
+  assert.ok(Math.abs(result.gaze[0] - .1) < 1e-8);
+});
+
+test('slow CPU sampling waits until the minimum sample count', () => {
+  const collector = new CalibrationCollector(0);
+  let result;
+  for (let i = 0; i < 5; i++) result = collector.add({valid: true, gaze: [.1, .2], captureAgeMs: 200}, 1200 + i * 600);
+  assert.equal(result.ready, false);
+  result = collector.add({valid: true, gaze: [.1, .2], captureAgeMs: 200}, 1200 + 5 * 600);
+  assert.equal(result.ready, true);
+  assert.equal(result.count, 6);
 });
 
 test('eye-only frames and short face loss preserve collected calibration samples', () => {

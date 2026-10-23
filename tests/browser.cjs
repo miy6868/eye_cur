@@ -41,7 +41,7 @@ const playwright = require(process.env.PLAYWRIGHT_PATH || 'playwright');
       }
     });
     assert.match(await page.evaluate(() => window.sent.filter(m => m.type === 'uiStatus').at(-1).message), /준비됨/);
-    assert.ok(await page.evaluate(() => window.sent.some(m => m.type === 'uiStatus' && m.message.startsWith('보정 검증 5/5'))));
+    assert.ok(await page.evaluate(() => window.sent.some(m => m.type === 'uiStatus' && m.message.startsWith('시선 보정 9/9'))));
     assert.ok(await page.evaluate(() => window.sent.some(m => m.type === 'calibrated')));
     assert.equal(await page.evaluate(() => {
       let acknowledgements = 0;
@@ -114,7 +114,7 @@ const playwright = require(process.env.PLAYWRIGHT_PATH || 'playwright');
     });
     await page.keyboard.press('Escape');
     assert.ok(await page.evaluate(() => window.sent.some(m => m.type === 'stop')));
-    console.log('PASS: 16-point calibration + 5 validations, DOM candidates, blink click, stale reply, removed element, calibration transfer, ESC');
+    console.log('PASS: 9-point calibration, DOM candidates, blink click, stale reply, removed element, calibration transfer, ESC');
 
     // Search-result layout: inline zero-height parent, multiline heading and covered links.
     await page.evaluate(html => { document.body.innerHTML = html; }, `<style>body{margin:30px}h3{font:24px/1.3 Arial;width:260px}a{color:blue}.cover{position:absolute;inset:0;background:white;z-index:2}</style>
@@ -141,36 +141,6 @@ const playwright = require(process.env.PLAYWRIGHT_PATH || 'playwright');
     assert.ok(domResult.count > 1);
     console.log('PASS: search-title fragments, actionable ancestor, deduplication, occlusion, changed href');
 
-    for (const scenario of ['consistent-bias', 'changing-bias', 'spatial-error']) {
-      const result = await page.evaluate(scenario => {
-        window.listener({type: 'start', context: scenario});
-        let refined = false, firstValidationCompleted = false;
-        for (let i = 0; i < 2000; i++) {
-          const dot = window.gazeShadow.querySelector('#dot');
-          const p = [parseFloat(dot.style.left) / 100, parseFloat(dot.style.top) / 100];
-          const validation = [.06, .94, .5].includes(p[0]);
-          refined ||= window.sent.some(m => m.context === scenario && m.message?.startsWith('일정한 위치 편향'));
-          firstValidationCompleted ||= window.sent.some(m => m.context === scenario && m.message?.startsWith('보정 검증 5/5'));
-          let bias = validation ? .08 : 0;
-          if (scenario === 'changing-bias' && refined) bias = -.08;
-          if (scenario === 'spatial-error' && validation) bias *= p[1] < .5 ? 1 : -1;
-          window.clock += 100;
-          window.listener({type: 'frame', context: scenario, valid: true, time: window.clock,
-            gaze: [p[0] * .4 - .2 + bias, p[1] * .3 - .1]});
-          if (window.sent.some(m => m.context === scenario && ['calibrated', 'calibrationInvalid'].includes(m.type))) break;
-        }
-        return {refined, firstValidationCompleted,
-          passed: window.sent.some(m => m.context === scenario && m.type === 'calibrated'),
-          failed: window.sent.some(m => m.context === scenario && m.type === 'calibrationInvalid'),
-          revalidated: window.sent.some(m => m.context === scenario && m.message?.startsWith('추가 보정 검증 5/5'))};
-      }, scenario);
-      assert.equal(result.firstValidationCompleted, true);
-      assert.equal(result.passed, scenario === 'consistent-bias');
-      assert.equal(result.failed, scenario !== 'consistent-bias');
-      assert.equal(result.refined, scenario !== 'spatial-error');
-      assert.equal(result.revalidated, scenario !== 'spatial-error');
-    }
-    console.log('PASS: consistent bias corrected and independently revalidated; changing and spatial errors rejected');
 
     await page.evaluate(() => {
       window.listener({type: 'start', context: 'failed-calibration'});
