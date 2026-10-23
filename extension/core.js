@@ -7,6 +7,10 @@
   const MOUTH_MIN_MS = 500;       // 이보다 짧게 벌리면 말하는 중으로 보고 무시
   const MOUTH_MAX_MS = 2000;      // 이보다 오래 벌리면 클릭 취소
   const MOUTH_COOLDOWN_MS = 800;  // 클릭 직후 연속 클릭 방지
+  // CalibrationCollector 설정
+  const SETTLE_MS = 600;   // 점이 나타난 뒤 눈이 옮겨 갈 때까지 기다리는 시간
+  const COLLECT_MS = 1000; // 점 하나에서 표본을 모으는 시간
+  const MIN_SAMPLES = 6;   // CPU가 느려도 최소 이만큼은 모은다
   function solve(matrix, vector) {
     const a = matrix.map((row, i) => [...row, vector[i]]);
     for (let i = 0; i < a.length; i++) {
@@ -29,46 +33,38 @@
     const middle = Math.floor(sorted.length / 2);
     return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
   }
+  // 한 점에서 모은 시선 값들의 대표값을 구한다
   function summarize(readings) {
     const valid = readings.filter(g => Array.isArray(g) && g.length === 2 && g.every(Number.isFinite));
-    if (valid.length < 12) return {ready: false, count: valid.length, reason: 'collecting'};
+    if (valid.length < MIN_SAMPLES) return {ready: false, count: valid.length};
+    // 중앙값에서 너무 먼 값(점으로 눈을 옮기는 중이던 값 등)은 버린다
     const center = [0, 1].map(k => median(valid.map(g => g[k])));
     const mad = [0, 1].map(k => Math.max(.001, 1.4826 * median(valid.map(g => Math.abs(g[k] - center[k])))));
     const kept = valid.filter(g => g.every((v, k) => Math.abs(v - center[k]) <= 3.5 * mad[k]));
-    if (kept.length < 12) return {ready: false, count: kept.length, reason: 'collecting'};
+    if (kept.length < MIN_SAMPLES) return {ready: false, count: kept.length};
+    // 평균 대신 중앙값: 튀는 값 하나에 덜 흔들린다
     const gaze = [0, 1].map(k => median(kept.map(g => g[k])));
-    const distances = kept.map(g => Math.hypot(...g.map((v, k) => v - gaze[k]))).sort((a, b) => a - b);
-    const spread = distances[Math.floor((distances.length - 1) * .9)];
-    // Compare consecutive groups: stationary model noise is different from drift.
-    const centers = [0, 1, 2].map(group => {
-      const block = kept.slice(Math.floor(group * kept.length / 3), Math.floor((group + 1) * kept.length / 3));
-      return [0, 1].map(k => median(block.map(g => g[k])));
-    });
-    const drift = Math.max(...centers.flatMap(a => centers.map(b => Math.hypot(a[0] - b[0], a[1] - b[1]))));
-    const quiet = spread <= .035 && drift <= .025;
-    const averaged = kept.length >= 24 && spread <= .08 && drift <= .018;
-    const ready = quiet || averaged;
-    return {ready, count: kept.length, gaze, spread, drift,
-      reason: ready ? 'ready' : spread <= .08 && drift <= .025 ? 'averaging' : 'unstable'};
+    return {ready: true, count: kept.length, gaze};
   }
   class CalibrationCollector {
-    constructor(shownAt) { this.shownAt = shownAt; this.readings = []; this.resumeAt = shownAt + 900; }
+    constructor(shownAt) { this.shownAt = shownAt; this.readings = []; this.resumeAt = shownAt + SETTLE_MS; }
     add(frame, now) {
       const age = frame.captureAgeMs ?? frame.inferenceMs ?? 0;
       if (!frame.valid || frame.closed || frame.closing || frame.eyesReady === false) {
         this.resumeAt = now + 350;
         return {ready: false, count: this.readings.length, reason: 'eyes'};
       }
-      if (!Number.isFinite(age) || age < 0 || age > 500 || now - age < Math.max(this.shownAt + 900, this.resumeAt)) {
+      // 촬영 시각(now - age) 기준으로 판단해야 CPU가 늦게 낸 이전 점의 결과가 섞이지 않는다
+      if (!Number.isFinite(age) || age < 0 || age > 500 || now - age < Math.max(this.shownAt + SETTLE_MS, this.resumeAt)) {
         return {ready: false, count: this.readings.length, reason: 'settling'};
       }
       if (!Array.isArray(frame.gaze) || frame.gaze.length !== 2 || !frame.gaze.every(Number.isFinite)) {
         return {ready: false, count: this.readings.length, reason: 'invalid'};
       }
       this.readings.push({gaze: frame.gaze, time: now - age});
-      this.readings = this.readings.filter(r => now - r.time <= 10000).slice(-48);
       const result = summarize(this.readings.map(r => r.gaze));
-      if (this.readings.at(-1).time - this.readings[0].time < 1200) result.ready = false;
+      // 안정될 때까지 기다리지 않고 정해진 시간만 모은다: 오래 걸리면 그사이 머리가 움직여 더 부정확해진다
+      if (this.readings.at(-1).time - this.readings[0].time < COLLECT_MS) result.ready = false;
       return result;
     }
   }
@@ -113,17 +109,6 @@
   function predict(model, gaze) {
     const row = features(gaze, model.mean, model.scale, model.degree || 1);
     return model.coefficients.map((c, axis) => c.reduce((sum, v, k) => sum + v * row[k], 0) + (model.offset?.[axis] || 0));
-  }
-  function correctBias(model, observations) {
-    if (observations.length !== 5) return null;
-    const residuals = observations.map(s => s.target.map((v, k) => v - predict(model, s.gaze)[k]));
-    if (!residuals.flat().every(Number.isFinite)) return null;
-    const offset = [0, 1].map(k => median(residuals.map(r => r[k])));
-    const scatter = residuals.map(r => Math.hypot(...r.map((v, k) => v - offset[k])));
-    // Only correct a consistent translation. Fresh measurements must validate it.
-    if (Math.hypot(...offset) > .3 || Math.max(...scatter) > .12 ||
-        Math.sqrt(scatter.reduce((sum, v) => sum + v * v, 0) / scatter.length) > .07) return null;
-    return {...model, offset: offset.map((v, k) => v + (model.offset?.[k] || 0))};
   }
   class Blink {
     constructor() { this.reset(); this.cooldown = 0; }
@@ -234,6 +219,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, correctBias, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, distanceToRect, summarize, CalibrationCollector};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, distanceToRect, summarize, CalibrationCollector};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

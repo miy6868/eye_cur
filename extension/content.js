@@ -6,7 +6,7 @@
   // 클릭 방식: 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 기존 양눈 감기 클릭
   const CLICK_MODE = 'mouth';
   const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
-  const {fit, predict, correctBias, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, CalibrationCollector} = globalThis.GazeCore;
+  const {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, CalibrationCollector} = globalThis.GazeCore;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -23,11 +23,10 @@
   let trail = []; // 최근 3초의 {raw, filtered, time}: 떨림 계산과 그래프용
   const GRAPH_MS = 3000;
   const JITTER_MS = 1500;
-  const trainingPoints = [.04, .35, .65, .96].flatMap((y, row) =>
-    (row % 2 ? [.96, .65, .35, .04] : [.04, .35, .65, .96]).map(x => [x, y]));
-  const validationPoints = [[.06, .06], [.94, .06], [.94, .94], [.06, .94], [.5, .5]];
-  const calibrationPoints = [...trainingPoints, ...validationPoints];
-  const trainingCount = trainingPoints.length, validationCount = validationPoints.length;
+  // 3×3 = 9점. 버튼이 화면 끝까지 있으므로 가장자리 가까이까지 보정한다
+  // 줄마다 방향을 바꿔(ㄹ자) 눈이 멀리 뛰지 않게 한다
+  const calibrationPoints = [.05, .5, .95].flatMap((y, row) =>
+    (row % 2 ? [.95, .5, .05] : [.05, .5, .95]).map(x => [x, y]));
   let currentContext;
   let running = false, host, shadow, model, calibration, smooth, clicker;
   let selected = null, pending = null, requestNumber = 0, lastRequest = 0;
@@ -71,7 +70,7 @@
     const saved = message.calibration;
     if (saved?.layout === layout) model = saved.model;
     else if (saved) send({type: 'calibrationInvalid'});
-    calibration = model ? null : {index: 0, collector: null, samples: [], validation: [], retries: 0};
+    calibration = model ? null : {index: 0, collector: null, samples: [], retries: 0};
     host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
     shadow = host.attachShadow({mode: 'closed'});
@@ -97,7 +96,7 @@
     shadow.querySelector('#recalibrate').onclick = () => send({type: 'recalibrate'});
     shadow.querySelector('#use').onclick = () => finishCalibration(calibration.result);
     showFilterName();
-    if (calibration) { placeDot(); status('16점 정밀 보정 · 카메라 연결 대기 중…'); }
+    if (calibration) { placeDot(); status(`${calibrationPoints.length}점 보정 · 카메라 연결 대기 중…`); }
     else { shadow.querySelector('#veil').hidden = true; status('저장된 보정으로 계속합니다 · 어긋나면 다시 보정을 누르세요.'); }
     timer = setInterval(() => {
       if (!running) return;
@@ -122,70 +121,47 @@
     const result = calibration.collector.add(frame, now);
     // Eye-only frames arrive much faster than CPU gaze results. Keep progress visible.
     if (result.reason === 'invalid' && now - calibration.collector.shownAt < 15000) return;
-    const label = calibration.index < trainingCount ? `시선 보정 ${calibration.index + 1}/${trainingCount}` : `${calibration.refined ? '추가 보정 검증' : '보정 검증'} ${calibration.index - trainingCount + 1}/${validationCount}`;
-    const progress = result.reason === 'unstable' ? `모델 출력 변화 확인 중 · 표본 ${result.count}` :
-      result.reason === 'averaging' ? `모델 잡음 평균화 중 · 표본 ${result.count}/24` :
-      result.reason === 'eyes' ? '눈을 뜬 상태의 표본 대기 중' :
-      result.reason === 'invalid' ? 'CPU 시선 결과 대기 중' : `표본 ${result.count}/12 이상 수집 중`;
+    const label = `시선 보정 ${calibration.index + 1}/${calibrationPoints.length}`;
+    const progress = result.reason === 'eyes' ? '눈을 뜬 상태의 표본 대기 중' :
+      result.reason === 'invalid' ? 'CPU 시선 결과 대기 중' : `표본 ${result.count}개 수집 중`;
     status(`${label} · ${progress} · 초록 점을 보세요`);
     if (!result.ready) {
       if (now - calibration.collector.shownAt > 15000) {
         if (calibration.retries++ < 1) {
           placeDot(); status(`${label} · 이 점을 다시 측정합니다.`);
-        } else calibrationFailed(`${label}: 사용할 시선 표본을 충분히 모으지 못했습니다. CPU 추론 지연이나 모델 출력 변화가 원인일 수 있으며, 실제 눈 움직임을 뜻하지는 않습니다.`);
+        } else calibrationFailed(`${label}: 사용할 시선 표본을 충분히 모으지 못했습니다. 얼굴이 카메라에 잘 보이는지 확인하세요.`);
       }
       return;
     }
-    const gaze = result.gaze;
-    const target = calibrationPoints[calibration.index];
-    if (calibration.index >= trainingCount) {
-      const delta = predict(model, gaze).map((v, k) => v - target[k]);
-      const error = Math.hypot(...delta);
-      const pixels = Math.round(Math.hypot(delta[0] * innerWidth, delta[1] * innerHeight));
-      if (!Number.isFinite(error)) { calibrationFailed('시선 좌표 계산에 실패했습니다. 다시 보정해 주세요.'); return; }
-      if (error > .18) {
-        if (calibration.retries++ < 1) { placeDot(); status(`검증 오차 ${pixels}px · 이 점을 한 번 더 측정합니다.`); return; }
-      }
-      calibration.validation.push({error, pixels, gaze, target});
-      if (calibration.index === calibrationPoints.length - 1) {
-        const rms = Math.sqrt(calibration.validation.reduce((sum, v) => sum + v.error ** 2, 0) / validationCount);
-        const pixelRms = Math.round(Math.sqrt(calibration.validation.reduce((sum, v) => sum + v.pixels ** 2, 0) / validationCount));
-        if (rms > .15 || calibration.validation.some(v => v.error > .18)) {
-          const corrected = !calibration.refined && correctBias(model, calibration.validation);
-          if (corrected) {
-            model = corrected; calibration.refined = true; calibration.validation = [];
-            calibration.index = trainingCount; calibration.retries = 0; placeDot();
-            status('일정한 위치 편향을 추가 보정했습니다. 새 표본으로 5점을 다시 검증합니다.');
-            return;
-          }
-          const worst = Math.max(...calibration.validation.map(v => v.pixels));
-          // 학습은 끝났으니 버리지 않고, 오차를 보여 준 뒤 사용자가 계속할지 고르게 한다
-          calibration.result = {rms, pixelRms};
-          const message = `검증 평균 ${pixelRms}px · 최대 ${worst}px로 기준보다 큽니다. 그래도 사용하거나 다시 보정하세요.`;
-          shadow.querySelector('#guide').textContent = message;
-          shadow.querySelector('#dot').hidden = true;
-          shadow.querySelector('#use').hidden = false;
-          status(message);
-          return;
-        }
-        finishCalibration({rms, pixelRms});
-        return;
-      }
-    } else calibration.samples.push({gaze, target});
-    if (calibration.index === trainingCount - 1) {
-      try {
-        model = fit(calibration.samples);
-        if (model.error > .15) throw new Error(`보정 점과 시선 출력의 대응 오차 ${(model.error * 100).toFixed(1)}%. 머리 움직임 외에 입력 영상·모델 오차가 원인일 수 있습니다.`);
-      } catch (error) { calibrationFailed(error.message); return; }
+    calibration.samples.push({gaze: result.gaze, target: calibrationPoints[calibration.index]});
+    calibration.index++; calibration.retries = 0;
+    if (calibration.index < calibrationPoints.length) { placeDot(); return; }
+    try {
+      model = fit(calibration.samples);
+    } catch (error) { calibrationFailed(error.message); return; }
+    // 검증 점을 따로 보지 않는다. 점 하나를 빼고 회귀한 뒤 뺀 점을 맞혀 보는 교차 검증 오차를 쓴다
+    const rms = model.crossError;
+    if (!Number.isFinite(rms)) { calibrationFailed('시선 좌표 계산에 실패했습니다. 다시 보정해 주세요.'); return; }
+    // 화면 비율 단위 오차를 픽셀로 대략 바꾼다 (가로·세로 오차가 비슷하다고 본다)
+    const pixelRms = Math.round(rms * Math.hypot(innerWidth, innerHeight) / Math.SQRT2);
+    if (rms > .15) {
+      // 학습은 끝났으니 버리지 않고, 오차를 보여 준 뒤 사용자가 계속할지 고르게 한다
+      calibration.result = {rms, pixelRms};
+      const message = `교차 검증 오차 약 ${pixelRms}px로 기준보다 큽니다. 그래도 사용하거나 다시 보정하세요.`;
+      shadow.querySelector('#guide').textContent = message;
+      shadow.querySelector('#dot').hidden = true;
+      shadow.querySelector('#use').hidden = false;
+      status(message);
+      return;
     }
-    calibration.index++; calibration.retries = 0; placeDot();
+    finishCalibration({rms, pixelRms});
   }
   function finishCalibration({rms, pixelRms}) {
     // 검증 오차만큼 후보 탐색 반경도 넓어지도록 모델 오차에 반영한다
     model.error = Math.max(model.error, rms);
     calibration = null; shadow.querySelector('#veil').hidden = true;
     send({type: 'calibrated', model, layout});
-    status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · 검증 오차 ${pixelRms}px · ${CLICK_HINT}.`);
+    status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · 검증 오차 약 ${pixelRms}px · ${CLICK_HINT}.`);
   }
   function calibrationFailed(message) {
     running = false; clearInterval(timer); invalidate();
