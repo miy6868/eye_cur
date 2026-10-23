@@ -98,7 +98,7 @@
     shadow.querySelector('#use').onclick = () => finishCalibration(calibration.result);
     showFilterName();
     if (calibration) { placeDot(); status('16점 정밀 보정 · 카메라 연결 대기 중…'); }
-    else { shadow.querySelector('#veil').hidden = true; status('보정 유지 · 이 탭에서 계속합니다.'); }
+    else { shadow.querySelector('#veil').hidden = true; status('저장된 보정으로 계속합니다 · 어긋나면 다시 보정을 누르세요.'); }
     timer = setInterval(() => {
       if (!running) return;
       if (geometry() !== layout) { send({type: 'calibrationInvalid'}); start({context: currentContext}); return; }
