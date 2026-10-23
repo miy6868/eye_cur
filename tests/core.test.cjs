@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, fit, predict, distanceToRect, summarize, CalibrationCollector} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, summarize, CalibrationCollector} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -187,6 +187,37 @@ test('filters forget old points after reset', () => {
   average.reset(); smooth.reset();
   assert.deepEqual(average.update([10, 20]), [10, 20]);
   assert.deepEqual(smooth.update([10, 20]), [10, 20]);
+});
+
+test('FixationFilter averages a fixation and ignores one stray point', () => {
+  const f = new FixationFilter(120, 3, 30);
+  f.update([100, 100]);
+  f.update([140, 100]);
+  // 한 번 멀리 튄 점은 무시하고 기존 응시 평균을 유지한다
+  assert.deepEqual(f.update([600, 100]), [120, 100]);
+  assert.deepEqual(f.update([120, 100]), [120, 100]);
+});
+
+test('FixationFilter jumps after 3 nearby far points, not after scattered noise', () => {
+  const f = new FixationFilter(120, 3, 30);
+  f.update([100, 100]);
+  // 서로 먼 방향으로 튄 점 3개는 시선 이동이 아니다
+  f.update([600, 100]);
+  f.update([100, 600]);
+  assert.deepEqual(f.update([-400, 100]), [100, 100]);
+  // 같은 곳에 3번 연속 오면 바로 새 위치로 옮긴다
+  f.update([800, 500]);
+  f.update([820, 500]);
+  assert.deepEqual(f.update([840, 500]), [820, 500]);
+});
+
+test('FixationFilter keeps only the last maxPoints points', () => {
+  const f = new FixationFilter(120, 3, 2);
+  f.update([0, 0]);
+  f.update([10, 0]);
+  assert.deepEqual(f.update([20, 0]), [15, 0]);
+  f.reset();
+  assert.deepEqual(f.update([500, 500]), [500, 500]);
 });
 
 test('jitter is the standard deviation of points in pixels', () => {

@@ -6,7 +6,7 @@
   // 클릭 방식: 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 기존 양눈 감기 클릭
   const CLICK_MODE = 'mouth';
   const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
-  const {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, CalibrationCollector} = globalThis.GazeCore;
+  const {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CalibrationCollector} = globalThis.GazeCore;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -17,8 +17,10 @@
     {name: '지수평균 강(0.2)', create: () => new ExponentialSmoothing(0.2)},
     {name: '이동평균 최강(20)', create: () => new MovingAverage(20)},
     {name: '지수평균 최강(0.1)', create: () => new ExponentialSmoothing(0.1)},
+    // 응시 중에는 최대 30개(약 3초)를 평균해 지수평균 0.1보다 덜 떨리고, 시선이 뛰면 3개(약 0.3초) 만에 따라간다
+    {name: '응시 고정(120px)', create: () => new FixationFilter(120, 3, 30)},
   ];
-  let filterIndex = 4; // 지수평균 최강(0.1)으로 시작
+  let filterIndex = 5; // 응시 고정으로 시작
   let filter = filterChoices[filterIndex].create();
   let trail = []; // 최근 3초의 {raw, filtered, time}: 떨림 계산과 그래프용
   const GRAPH_MS = 3000;

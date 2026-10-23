@@ -182,6 +182,39 @@
       return this.value;
     }
   }
+  function average(points) {
+    return [0, 1].map(k => points.reduce((sum, p) => sum + p[k], 0) / points.length);
+  }
+  // 떨림 제거 필터 3: 응시 고정. 눈은 한 곳을 응시하다가 순간적으로 다른 곳으로 뛴다(사카드).
+  // 그래서 응시 중에는 많이 평균해 멈춰 있고, 시선이 뛰면 평균을 버리고 바로 따라간다
+  class FixationFilter {
+    constructor(radius, jumpCount, maxPoints) {
+      this.radius = radius;       // 응시 중심에서 이 거리(px) 안의 점은 같은 응시로 본다
+      this.jumpCount = jumpCount; // 멀리 있는 점이 이만큼 연속으로 와야 시선이 옮겨 갔다고 본다
+      this.maxPoints = maxPoints; // 응시 하나에서 평균할 최대 점 수
+      this.reset();
+    }
+    reset() { this.points = []; this.away = []; }
+    update(point) {
+      const near = this.points.length === 0 || Math.hypot(...point.map((v, k) => v - average(this.points)[k])) <= this.radius;
+      if (near) {
+        this.points.push(point);
+        this.away = [];
+      } else {
+        // 멀리 있는 점들끼리도 서로 가까워야 한다: 사방으로 튄 잡음이면 처음부터 다시 센다
+        const together = this.away.length === 0 || Math.hypot(...point.map((v, k) => v - average(this.away)[k])) <= this.radius;
+        this.away = together ? [...this.away, point] : [point];
+        // 한두 번 튄 값은 무시하고, 연속으로 멀리 있어야 새 응시로 옮긴다
+        if (this.away.length >= this.jumpCount) {
+          this.points = this.away;
+          this.away = [];
+        }
+      }
+      // 오래된 점은 버린다: 천천히 움직이는 시선도 결국 따라가게 한다
+      if (this.points.length > this.maxPoints) this.points.shift();
+      return average(this.points);
+    }
+  }
   // 점들이 평균 위치에서 얼마나 흩어져 있는지(표준편차, px). 필터 전/후 떨림 비교에 쓴다
   function jitter(points) {
     if (points.length < 2) return 0;
@@ -219,6 +252,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, jitter, distanceToRect, summarize, CalibrationCollector};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, summarize, CalibrationCollector};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();
