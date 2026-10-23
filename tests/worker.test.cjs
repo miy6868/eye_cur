@@ -4,7 +4,8 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const {randomUUID} = require('node:crypto');
 
-function harness() {
+// stored: 가짜 chrome.storage.local 내용. 같은 객체를 넘기면 워커를 다시 켠 상황을 흉내 낸다
+function harness(stored = {}) {
   const handlers = {}, sent = [], sockets = [], injected = [];
   const event = name => ({addListener: fn => { handlers[name] = fn; }});
   let selected = 1;
@@ -37,6 +38,11 @@ function harness() {
       injected.push(args.target.tabId); if (delayedInjection) { const fn = delayedInjection; delayedInjection = null; await fn(); }
     }},
     windows: {WINDOW_ID_NONE: -1, get: async () => ({focused}), onFocusChanged: event('focus')},
+    storage: {local: {
+      get: async key => (key in stored ? {[key]: stored[key]} : {}),
+      set: async items => { Object.assign(stored, items); },
+      remove: async key => { delete stored[key]; },
+    }},
   };
   vm.runInNewContext(fs.readFileSync('extension/worker.js', 'utf8'), {
     chrome, WebSocket: Socket, crypto: {randomUUID}, console,
@@ -83,6 +89,25 @@ test('tab switch preserves socket and calibration, rejects old responses', async
   await h.sockets[0].receive({type: 'selection', requestId: id, id: 'e2'});
   const reply = h.sent.filter(m => m.type === 'selection').at(-1);
   assert.equal(reply.tabId, 2); assert.equal(reply.requestId, 1); assert.equal(reply.context, b.context);
+});
+
+test('calibration survives ESC stop and worker restart; recalibrate and invalid layout forget it', async () => {
+  const stored = {};
+  const h = harness(stored); await h.message({type: 'start', tabId: 1, token: 'test'}); h.sockets[0].open();
+  assert.equal(h.current().calibration, null);
+  await h.message({type: 'calibrated', context: h.current().context, model: {degree: 2}, layout: 'fixed'}, {tab: {id: 1}});
+  await h.message({type: 'stop', context: h.current().context, reason: 'ESC로 중지됨'}, {tab: {id: 1}});
+  await h.message({type: 'start', tabId: 1, token: 'test'});
+  assert.equal(h.current().calibration.model.degree, 2);
+  // 새 워커(브라우저 재시작)도 같은 저장소에서 보정을 불러온다
+  const fresh = harness(stored); await fresh.message({type: 'start', tabId: 1, token: 'test'});
+  assert.equal(fresh.current().calibration.layout, 'fixed');
+  await fresh.message({type: 'recalibrate', context: fresh.current().context}, {tab: {id: 1}});
+  assert.equal(fresh.current().calibration, null);
+  assert.equal(stored.calibration, undefined);
+  await fresh.message({type: 'calibrated', context: fresh.current().context, model: {degree: 1}, layout: 'fixed'}, {tab: {id: 1}});
+  await fresh.message({type: 'calibrationInvalid', context: fresh.current().context}, {tab: {id: 1}});
+  assert.equal(stored.calibration, undefined);
 });
 
 test('missing page receiver retries without load-complete event and preserves calibration', async () => {

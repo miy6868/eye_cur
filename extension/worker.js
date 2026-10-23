@@ -136,10 +136,19 @@ function connect(token) {
   socket.onerror = () => { if (connection === socket) status = '서버 응답 대기 중… 자동 재연결합니다.'; };
 }
 
+// 보정이 화면과 맞지 않게 되면 메모리와 브라우저 저장소에서 모두 지운다
+function forgetCalibration() {
+  savedCalibration = null;
+  chrome.storage.local.remove('calibration');
+}
+
 async function start(tabId, token) {
   pairingToken = token;
   clearTimeout(socketRetryTimer); socketRetryTimer = null;
-  savedCalibration = null;
+  // 지난 세션의 보정을 불러온다. ESC로 끄거나 브라우저를 다시 켜도 보정을 처음부터 하지 않는다
+  // 창 크기·위치가 달라졌으면 content.js가 layout을 비교해 새로 보정한다
+  const stored = await chrome.storage.local.get('calibration');
+  savedCalibration = stored.calibration || null;
   enabled = true;
   if (!connection || connection.readyState > WebSocket.OPEN) connect(token);
   await attach(tabId);
@@ -157,12 +166,15 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   if (!current || !enabled) return;
   if (message.type === 'calibrated') {
-    savedCalibration = {model: message.model, layout: message.layout}; reply({ok: true}); return;
+    savedCalibration = {model: message.model, layout: message.layout};
+    // 메모리는 ESC 중지·브라우저 종료 때 사라지므로 다음 세션을 위해 저장소에도 남긴다
+    chrome.storage.local.set({calibration: savedCalibration});
+    reply({ok: true}); return;
   }
   if (message.type === 'recalibrate') {
-    savedCalibration = null; attach(activeTab).then(() => reply({ok: true})); return true;
+    forgetCalibration(); attach(activeTab).then(() => reply({ok: true})); return true;
   }
-  if (message.type === 'calibrationInvalid') { savedCalibration = null; return; }
+  if (message.type === 'calibrationInvalid') { forgetCalibration(); return; }
   if (message.type === 'choose' && connection?.readyState === WebSocket.OPEN) {
     const id = ++wireId;
     requests.clear();
