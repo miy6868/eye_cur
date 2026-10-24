@@ -57,27 +57,6 @@
     const iris = Array.isArray(frame.iris) && frame.iris.length === 2 && frame.iris.every(Number.isFinite);
     return iris ? [...frame.gaze, ...frame.iris] : frame.gaze;
   }
-  // 눈 뜬 정도 보정. 눈꺼풀이 내려오면 GazeTR·홍채 값이 "아래를 본다"처럼 바뀐다.
-  // 한 점을 보며 눈을 크게/가늘게 뜬 프레임으로, 눈 열림이 1 바뀔 때 입력마다 얼마나 바뀌는지(기울기)를 구한다
-  const MIN_LID_SPREAD = .05; // 눈 열림 표준편차가 이보다 작으면 눈 뜬 정도를 바꾸지 않은 것이라 보정하지 않는다
-  function lidSlopes(frames) {
-    if (frames.length < 10) return null;
-    const mean = values => values.reduce((a, b) => a + b, 0) / values.length;
-    const lid = frames.map(f => f.openness);
-    const lidMean = mean(lid);
-    const lidVariance = mean(lid.map(v => (v - lidMean) ** 2));
-    if (Math.sqrt(lidVariance) < MIN_LID_SPREAD) return null;
-    // 입력마다 직선 기울기 = 공분산 / 분산 (보는 곳이 고정이므로 변화는 모두 눈꺼풀 때문)
-    return frames[0].gaze.map((_, k) => {
-      const inputMean = mean(frames.map(f => f.gaze[k]));
-      return mean(frames.map((f, i) => (f.gaze[k] - inputMean) * (lid[i] - lidMean))) / lidVariance;
-    });
-  }
-  // 입력에서 눈 뜬 정도 때문에 생긴 변화를 뺀다. 평소 눈 열림(1)에서의 값으로 되돌리는 것
-  function removeLid(input, openness, slopes) {
-    if (!slopes || !Number.isFinite(openness)) return input;
-    return input.map((v, k) => v - (slopes[k] || 0) * (openness - 1));
-  }
   // 프레임 하나를 기록 {gaze, time}으로 바꾼다. gaze는 회귀 입력(gazeInput). time은 보정 시작부터 촬영까지(ms). 쓸 수 없으면 null
   function pursuitRecord(frame, now, startedAt) {
     if (!frame.valid || frame.closed || frame.closing || frame.eyesReady === false) return null;
@@ -316,6 +295,21 @@
       return this.selected;
     }
   }
+  // 눈 크기 경고: 보정할 때 눈 열림 범위(5~95%)를 벗어나면 예측이 틀어지기 쉬우므로 알려 준다.
+  // 아래를 보면 눈이 자연스럽게 작아지므로 고정 기준 대신 보정 때 범위를 쓴다
+  const EYE_MARGIN = .05; // 범위를 이만큼 넘어야 경고: 경계에서 메시지가 깜빡이지 않게
+  function eyeRange(openness) {
+    const sorted = [...openness].sort((a, b) => a - b);
+    const at = ratio => sorted[Math.round((sorted.length - 1) * ratio)];
+    return [at(.05), at(.95)];
+  }
+  // 'big' | 'small' | null
+  function eyeSize(openness, range) {
+    if (!range || !Number.isFinite(openness)) return null;
+    if (openness > range[1] + EYE_MARGIN) return 'big';
+    if (openness < range[0] - EYE_MARGIN) return 'small';
+    return null;
+  }
   // 클릭으로 드리프트 고치기: 클릭한 요소를 보고 있었다고 보고, 예측 위치와 요소 가운데의 차이만큼 오프셋을 옮긴다
   const DRIFT_GAIN = .5;         // 차이의 절반만 옮긴다: 한 번 잘못 본 클릭에 크게 흔들리지 않게
   const DRIFT_MAX_SIZE_PX = 200; // 요소가 이 방향으로 이보다 길면 어디를 봤는지 알 수 없어 그 방향은 고치지 않는다
@@ -331,6 +325,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput, correctDrift, lidSlopes, removeLid};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput, correctDrift, eyeRange, eyeSize};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();
