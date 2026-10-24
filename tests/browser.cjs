@@ -30,9 +30,11 @@ const playwright = require(process.env.PLAYWRIGHT_PATH || 'playwright');
     await page.addScriptTag({path: path.join(__dirname, '../extension/core.js')});
     await page.addScriptTag({path: path.join(__dirname, '../extension/dom.js')});
     await page.addScriptTag({path: path.join(__dirname, '../extension/content.js')});
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       window.listener({type: 'start'});
       for (let tick = 0; tick < 1000; tick++) {
+        // 움직이는 점은 requestAnimationFrame에서 위치가 바뀐다
+        await new Promise(requestAnimationFrame);
         const dot = window.gazeShadow.querySelector('#dot');
         const point = [parseFloat(dot.style.left) / 100, parseFloat(dot.style.top) / 100];
         const gaze = [point[0] * .4 - .2, point[1] * .3 - .1];
@@ -41,7 +43,7 @@ const playwright = require(process.env.PLAYWRIGHT_PATH || 'playwright');
       }
     });
     assert.match(await page.evaluate(() => window.sent.filter(m => m.type === 'uiStatus').at(-1).message), /준비됨/);
-    assert.ok(await page.evaluate(() => window.sent.some(m => m.type === 'uiStatus' && m.message.startsWith('시선 보정 9/9'))));
+    assert.ok(await page.evaluate(() => window.sent.some(m => m.type === 'uiStatus' && m.message.startsWith('시선 보정 중'))));
     assert.ok(await page.evaluate(() => window.sent.some(m => m.type === 'calibrated')));
     assert.equal(await page.evaluate(() => {
       let acknowledgements = 0;
@@ -114,7 +116,7 @@ const playwright = require(process.env.PLAYWRIGHT_PATH || 'playwright');
     });
     await page.keyboard.press('Escape');
     assert.ok(await page.evaluate(() => window.sent.some(m => m.type === 'stop')));
-    console.log('PASS: 9-point calibration, DOM candidates, blink click, stale reply, removed element, calibration transfer, ESC');
+    console.log('PASS: moving-dot calibration, DOM candidates, blink click, stale reply, removed element, calibration transfer, ESC');
 
     // Search-result layout: inline zero-height parent, multiline heading and covered links.
     await page.evaluate(html => { document.body.innerHTML = html; }, `<style>body{margin:30px}h3{font:24px/1.3 Arial;width:260px}a{color:blue}.cover{position:absolute;inset:0;background:white;z-index:2}</style>

@@ -6,7 +6,7 @@
   // 클릭 방식: 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 기존 양눈 감기 클릭
   const CLICK_MODE = 'mouth';
   const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
-  const {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CalibrationCollector} = globalThis.GazeCore;
+  const {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, pursuitPoint, pursuitSample} = globalThis.GazeCore;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -25,10 +25,8 @@
   let trail = []; // 최근 3초의 {raw, filtered, time}: 떨림 계산과 그래프용
   const GRAPH_MS = 3000;
   const JITTER_MS = 1500;
-  // 3×3 = 9점. 버튼이 화면 끝까지 있으므로 가장자리 가까이까지 보정한다
-  // 줄마다 방향을 바꿔(ㄹ자) 눈이 멀리 뛰지 않게 한다
-  const calibrationPoints = [.05, .5, .95].flatMap((y, row) =>
-    (row % 2 ? [.95, .5, .05] : [.05, .5, .95]).map(x => [x, y]));
+  // 고정 점 대신 움직이는 점을 따라 보게 해 표본이 화면 전체에 고르게 퍼지게 한다
+  const MIN_PURSUIT_SAMPLES = 40; // 경로를 다 돌았는데 이보다 적으면 얼굴을 자주 놓친 것이므로 실패 처리
   let currentContext;
   let running = false, host, shadow, model, calibration, smooth, clicker;
   let selected = null, pending = null, requestNumber = 0, lastRequest = 0;
@@ -72,7 +70,7 @@
     const saved = message.calibration;
     if (saved?.layout === layout) model = saved.model;
     else if (saved) send({type: 'calibrationInvalid'});
-    calibration = model ? null : {index: 0, collector: null, samples: [], retries: 0};
+    calibration = model ? null : {startedAt: null, samples: []}; // startedAt: 첫 시선 결과가 오면 점이 출발한다
     host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
     shadow = host.attachShadow({mode: 'closed'});
@@ -90,7 +88,7 @@
       #cursor{position:fixed;width:12px;height:12px;border:2px solid #fff;border-radius:50%;background:#176cff;transform:translate(-50%,-50%)}
       #target{position:fixed;border:3px solid #21dba0;border-radius:5px;background:#21dba01a;box-shadow:0 0 0 2px #071b2a99}
       </style>
-      <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요.<br>보정은 자동으로 진행됩니다.</div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
+      <div id="veil"><div id="guide">머리를 고정하고 움직이는 초록 점을 눈으로 따라가세요.<br>보정은 자동으로 진행됩니다.</div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
       <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
@@ -98,14 +96,13 @@
     shadow.querySelector('#recalibrate').onclick = () => send({type: 'recalibrate'});
     shadow.querySelector('#use').onclick = () => finishCalibration(calibration.result);
     showFilterName();
-    if (calibration) { placeDot(); status(`${calibrationPoints.length}점 보정 · 카메라 연결 대기 중…`); }
+    if (calibration) { moveDot(calibration); status('움직이는 점 보정 · 카메라 연결 대기 중…'); }
     else { shadow.querySelector('#veil').hidden = true; status('저장된 보정으로 계속합니다 · 어긋나면 다시 보정을 누르세요.'); }
     timer = setInterval(() => {
       if (!running) return;
       if (geometry() !== layout) { send({type: 'calibrationInvalid'}); start({context: currentContext}); return; }
       if (performance.now() - lastFrame > 500) {
         invalidate(); hideCursor();
-        if (calibration) calibration.collector.resumeAt = performance.now() + 350;
       }
       if (pending && performance.now() - pending.sent > 1800) {
         pending = null; requestNumber++;
@@ -113,35 +110,37 @@
       }
     }, 100);
   }
-  function placeDot() {
-    const point = calibrationPoints[calibration.index];
+  // 화면이 그려질 때마다 점을 경로 위 현재 위치로 옮긴다
+  function moveDot(owner) {
+    // 보정이 끝났거나 새로 시작했으면 이 반복을 멈춘다
+    if (!running || calibration !== owner || owner.result) return;
+    const elapsed = owner.startedAt === null ? 0 : performance.now() - owner.startedAt;
+    const step = pursuitPoint(elapsed);
+    if (!step) return;
     const dot = shadow.querySelector('#dot');
-    dot.style.left = `${point[0] * 100}vw`; dot.style.top = `${point[1] * 100}vh`;
-    calibration.collector = new CalibrationCollector(performance.now());
+    dot.style.left = `${step.point[0] * 100}vw`; dot.style.top = `${step.point[1] * 100}vh`;
+    requestAnimationFrame(() => moveDot(owner));
   }
   function calibrate(frame, now) {
-    const result = calibration.collector.add(frame, now);
-    // Eye-only frames arrive much faster than CPU gaze results. Keep progress visible.
-    if (result.reason === 'invalid' && now - calibration.collector.shownAt < 15000) return;
-    const label = `시선 보정 ${calibration.index + 1}/${calibrationPoints.length}`;
-    const progress = result.reason === 'eyes' ? '눈을 뜬 상태의 표본 대기 중' :
-      result.reason === 'invalid' ? 'CPU 시선 결과 대기 중' : `표본 ${result.count}개 수집 중`;
-    status(`${label} · ${progress} · 초록 점을 보세요`);
-    if (!result.ready) {
-      if (now - calibration.collector.shownAt > 15000) {
-        if (calibration.retries++ < 1) {
-          placeDot(); status(`${label} · 이 점을 다시 측정합니다.`);
-        } else calibrationFailed(`${label}: 사용할 시선 표본을 충분히 모으지 못했습니다. 얼굴이 카메라에 잘 보이는지 확인하세요.`);
-      }
+    if (calibration.startedAt === null) {
+      // 카메라가 늦게 켜져도 점이 먼저 출발하지 않도록 첫 시선 결과에서 시계를 시작한다
+      if (!Array.isArray(frame.gaze)) return;
+      calibration.startedAt = now;
+    }
+    const sample = pursuitSample(frame, now, calibration.startedAt);
+    if (sample) calibration.samples.push(sample);
+    if (pursuitPoint(now - calibration.startedAt)) {
+      status(`시선 보정 중 · 표본 ${calibration.samples.length}개 · 움직이는 초록 점을 눈으로 따라가세요`);
       return;
     }
-    calibration.samples.push({gaze: result.gaze, target: calibrationPoints[calibration.index]});
-    calibration.index++; calibration.retries = 0;
-    if (calibration.index < calibrationPoints.length) { placeDot(); return; }
+    if (calibration.samples.length < MIN_PURSUIT_SAMPLES) {
+      calibrationFailed(`시선 표본이 ${calibration.samples.length}개뿐입니다. 얼굴이 카메라에 잘 보이는지 확인하고 다시 보정하세요.`);
+      return;
+    }
     try {
       model = fit(calibration.samples);
     } catch (error) { calibrationFailed(error.message); return; }
-    // 검증 점을 따로 보지 않는다. 점 하나를 빼고 회귀한 뒤 뺀 점을 맞혀 보는 교차 검증 오차를 쓴다
+    // 검증 점을 따로 보지 않는다. 표본 하나를 빼고 회귀한 뒤 뺀 표본을 맞혀 보는 교차 검증 오차를 쓴다
     const rms = model.crossError;
     if (!Number.isFinite(rms)) { calibrationFailed('시선 좌표 계산에 실패했습니다. 다시 보정해 주세요.'); return; }
     // 화면 비율 단위 오차를 픽셀로 대략 바꾼다 (가로·세로 오차가 비슷하다고 본다)
@@ -206,7 +205,6 @@
     shadow.querySelector('#mouth').textContent = `입 ${message.mouthOpen ? '벌림' : '다뭄'} · MAR ${mar}`;
     if (!document.hasFocus() || document.hidden || !message.valid) {
       invalidate(); hideCursor();
-      if (calibration) calibration.collector.resumeAt = now + 350;
       status(!message.valid ? (message.error || '얼굴을 찾는 중… 카메라를 바라보세요.') : '페이지로 돌아오면 계속합니다.');
       return;
     }
