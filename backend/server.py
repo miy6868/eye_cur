@@ -146,4 +146,5 @@ async def socket(ws: WebSocket):
 if __name__ == "__main__":
     print(f"\n확장 프로그램 연결 토큰: {TOKEN}")
     print("테스트 페이지: http://127.0.0.1:8765/demo\n")
-    uvicorn.run(app, host="127.0.0.1", port=8765, ws_max_size=32768)
+    # 메시지 크기 상한: 보정 기록(표본 수백 개, 약 40~100KB)이 들어가도록 1MB. 너무 큰 메시지는 여전히 거부한다
+    uvicorn.run(app, host="127.0.0.1", port=8765, ws_max_size=1024 * 1024)
