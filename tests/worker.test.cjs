@@ -183,3 +183,11 @@ test('navigation reattaches and delayed activation cannot revive the old tab', a
   assert.equal(h.sent.length, count);
   assert.equal(h.sockets[0].readyState, 3);
 });
+
+test('calibration log from the current page is forwarded to the server', async () => {
+  const h = harness();
+  await h.message({type: 'start', tabId: 1, token: 'test'});
+  h.sockets[0].open();
+  await h.message({type: 'calibrationLog', context: h.current().context, lag: 100}, {tab: {id: 1}});
+  assert.equal(h.sockets[0].messages.find(m => m.type === 'calibrationLog').lag, 100);
+});
