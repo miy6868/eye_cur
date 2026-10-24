@@ -5,6 +5,8 @@
   const USE_JEV = false;
   // 클릭 방식: 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 기존 양눈 감기 클릭
   const CLICK_MODE = 'mouth';
+  // true: 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 고친다(클릭 보정). 효과를 아직 측정하지 않아 기본은 끔
+  const CLICK_DRIFT = false;
   const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
   const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput, correctDrift} = globalThis.GazeCore;
   const nearest = new NearestSelector();
@@ -75,6 +77,8 @@
     lastRequest = 0; layout = geometry();
     const saved = message.calibration;
     if (saved?.layout === layout) model = saved.model;
+    // 클릭 보정을 껐으면 예전에 저장된 오프셋도 쓰지 않는다
+    if (model && !CLICK_DRIFT) delete model.offset;
     else if (saved) send({type: 'calibrationInvalid'});
     calibration = model ? null : {startedAt: null, records: [], check: null, checks: []}; // startedAt: 첫 시선 결과가 오면 점이 출발한다
     host = document.createElement('div');
@@ -279,7 +283,7 @@
     invalidate();
     element.focus({preventScroll: true}); element.click();
     status('클릭 완료');
-    if (gaze) {
+    if (CLICK_DRIFT && gaze) {
       // 방금 클릭한 요소를 보고 있었으므로, 그만큼 예측이 어긋났다고 보고 오프셋을 고친다
       model.offset = correctDrift(model.offset, gaze, item.rect, [innerWidth, innerHeight]);
       send({type: 'calibrated', model, layout}); // 다른 탭·다음 실행에서도 고친 값을 쓴다
