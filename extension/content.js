@@ -140,8 +140,7 @@
     }
     const record = pursuitRecord(frame, now, calibration.startedAt);
     if (record) {
-      // 머리 상태도 같이 남긴다: 사용 중 보정 대비 차이 표시와 기록 분석용
-      if (Number.isFinite(frame.headRoll)) record.head = [frame.headRoll, frame.headDistance];
+      annotate(record, frame);
       calibration.records.push(record);
     }
     if (pursuitPoint(now - calibration.startedAt)) {
@@ -158,11 +157,17 @@
     const heads = calibration.records.filter(r => r.head).map(r => r.head);
     if (heads.length) {
       const [roll, distance] = average(heads);
-      model.head = {roll, distance};
+      const [pitch] = average(heads.map(h => [h[2], h[3]]));
+      model.head = {roll, distance, pitch};
     }
     shadow.querySelector('#path').hidden = true;
     shadow.querySelector('#guide').textContent = '검증: 초록 점이 나타나면 1초씩 바라보세요.';
     showCheck(0, now);
+  }
+  // 기록에 머리 상태 [기울기, 거리, 끄덕임, 돌림]와 홍채 위치를 붙인다: 사용 중 비교와 기록 분석용
+  function annotate(record, frame) {
+    if (Number.isFinite(frame.headRoll)) record.head = [frame.headRoll, frame.headDistance, frame.headPitch, frame.headYaw];
+    if (Array.isArray(frame.iris)) record.iris = frame.iris;
   }
   // 검증 점 하나를 보여 준다
   function showCheck(index, now) {
@@ -177,7 +182,7 @@
     // record.time은 점이 나타난 뒤 촬영까지 걸린 시간
     const record = pursuitRecord(frame, now, shownAt);
     if (record && record.time >= CHECK_SETTLE_MS) {
-      if (Number.isFinite(frame.headRoll)) record.head = [frame.headRoll, frame.headDistance];
+      annotate(record, frame);
       calibration.checks[index].frames.push(record);
     }
     const done = record?.time >= CHECK_SETTLE_MS + CHECK_COLLECT_MS || now - shownAt > CHECK_TIMEOUT_MS;
@@ -233,11 +238,13 @@
   // 머리 기울기·거리를 보여 주고, 보정할 때와 얼마나 달라졌는지 비교한다
   // 이 값이 많이 바뀔수록 가장자리 오차가 커지는지 확인하려는 측정용 표시
   function showHead(message) {
-    let text = `머리 기울기 ${message.headRoll.toFixed(1)}° · 거리 ${message.headDistance}mm`;
+    let text = `머리 기울기 ${message.headRoll.toFixed(1)}° · 끄덕임 ${message.headPitch?.toFixed(1)}° · 거리 ${message.headDistance}mm`;
     if (model?.head) {
       const roll = message.headRoll - model.head.roll;
+      const pitch = message.headPitch - model.head.pitch;
       const distance = (message.headDistance / model.head.distance - 1) * 100;
-      text += ` (보정 대비 ${roll >= 0 ? '+' : ''}${roll.toFixed(1)}°, ${distance >= 0 ? '+' : ''}${distance.toFixed(0)}%)`;
+      const signed = (value, digits) => `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
+      text += ` (보정 대비 기울기 ${signed(roll, 1)}°, 끄덕임 ${signed(pitch, 1)}°, 거리 ${signed(distance, 0)}%)`;
     }
     shadow.querySelector('#head').textContent = text;
   }
