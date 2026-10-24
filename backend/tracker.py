@@ -77,6 +77,7 @@ def face_warp(points, camera, distortion):
     warp = normalized_camera @ scale @ transform @ np.linalg.inv(camera)
     # 정규화가 지우는 머리 정보: 고개 기울기(두 눈을 잇는 선의 각도)와 카메라까지 거리.
     # 시선 각도는 이 둘이 바뀌면 같은 화면 점을 봐도 달라지므로 따로 내보내 측정한다
+    # 부호: 사용자 기준 오른쪽으로 고개를 기울이면 -
     head_x = rotation[:, 0]
     head = {"headRoll": round(float(np.degrees(np.arctan2(head_x[1], head_x[0]))), 1),
             "headDistance": round(float(distance))}
