@@ -6,7 +6,7 @@
   // 클릭 방식: 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 기존 양눈 감기 클릭
   const CLICK_MODE = 'mouth';
   const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
-  const {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, pursuitPoint, pursuitSample} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit} = globalThis.GazeCore;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -26,7 +26,7 @@
   const GRAPH_MS = 3000;
   const JITTER_MS = 1500;
   // 고정 점 대신 움직이는 점을 따라 보게 해 표본이 화면 전체에 고르게 퍼지게 한다
-  const MIN_PURSUIT_SAMPLES = 40; // 경로를 다 돌았는데 이보다 적으면 얼굴을 자주 놓친 것이므로 실패 처리
+  const MIN_PURSUIT_RECORDS = 40; // 경로를 다 돌았는데 이보다 적으면 얼굴을 자주 놓친 것이므로 실패 처리
   let currentContext;
   let running = false, host, shadow, model, calibration, smooth, clicker;
   let selected = null, pending = null, requestNumber = 0, lastRequest = 0;
@@ -70,7 +70,7 @@
     const saved = message.calibration;
     if (saved?.layout === layout) model = saved.model;
     else if (saved) send({type: 'calibrationInvalid'});
-    calibration = model ? null : {startedAt: null, samples: []}; // startedAt: 첫 시선 결과가 오면 점이 출발한다
+    calibration = model ? null : {startedAt: null, records: []}; // startedAt: 첫 시선 결과가 오면 점이 출발한다
     host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
     shadow = host.attachShadow({mode: 'closed'});
@@ -80,15 +80,19 @@
       #veil{position:fixed;inset:0;background:#0c1728f5;pointer-events:auto}
       #use{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);padding:12px 22px;font:600 16px system-ui;background:#21dba0;color:#071b2a}
       #dot{position:fixed;width:26px;height:26px;border:5px solid #fff;border-radius:50%;background:#32dba0;transform:translate(-50%,-50%);box-shadow:0 0 0 14px #32dba029}
-      #guide{position:fixed;top:24px;left:50%;transform:translateX(-50%);font:16px/1.5 system-ui;color:#fff;text-align:center}
+      #path{position:fixed;inset:0;width:100%;height:100%}
+      #guide{position:fixed;top:50%;left:50%;transform:translate(-50%,calc(-100% - 8px));font:16px/1.5 system-ui;color:#fff;text-align:center}
       #panel{position:fixed;bottom:14px;left:14px;max-width:520px;border:1px solid #ffffff24;background:#142236;color:#fff;border-radius:9px;padding:10px 14px;font:13px/1.5 system-ui;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
       button{pointer-events:auto;white-space:nowrap;border:0;border-radius:5px;padding:6px 9px;background:#33465e;color:#fff;cursor:pointer}
+      /* 보정 중에는 정보 상자를 화면 가운데 두 줄 사이로 옮겨 점을 가리지 않게 한다 */
+      #panel.calibrating{top:calc(50% + 8px);bottom:auto;left:50%;transform:translateX(-50%)}
+      #panel.calibrating :is(#filter,#jitter,#graph){display:none}
       #raw{position:fixed;width:6px;height:6px;border-radius:50%;background:#ff3b3b;transform:translate(-50%,-50%)}
       #graph{background:#0c1728;border-radius:4px}
       #cursor{position:fixed;width:12px;height:12px;border:2px solid #fff;border-radius:50%;background:#176cff;transform:translate(-50%,-50%)}
       #target{position:fixed;border:3px solid #21dba0;border-radius:5px;background:#21dba01a;box-shadow:0 0 0 2px #071b2a99}
       </style>
-      <div id="veil"><div id="guide">머리를 고정하고 움직이는 초록 점을 눈으로 따라가세요.<br>보정은 자동으로 진행됩니다.</div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
+      <div id="veil"><svg id="path" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${PURSUIT_PATH.map(p => p.map(v => v * 100).join(' ')).join(' ')}" fill="none" stroke="#8a94a6" stroke-width="3" stroke-dasharray="8 6" vector-effect="non-scaling-stroke"/></svg><div id="guide">머리를 고정하고, 회색 선을 따라 움직이는 초록 점을 눈으로 따라가세요.<br>꺾이는 곳에서는 잠시 멈춥니다.</div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
       <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
@@ -96,6 +100,7 @@
     shadow.querySelector('#recalibrate').onclick = () => send({type: 'recalibrate'});
     shadow.querySelector('#use').onclick = () => finishCalibration(calibration.result);
     showFilterName();
+    shadow.querySelector('#panel').classList.toggle('calibrating', !!calibration);
     if (calibration) { moveDot(calibration); status('움직이는 점 보정 · 카메라 연결 대기 중…'); }
     else { shadow.querySelector('#veil').hidden = true; status('저장된 보정으로 계속합니다 · 어긋나면 다시 보정을 누르세요.'); }
     timer = setInterval(() => {
@@ -127,18 +132,18 @@
       if (!Array.isArray(frame.gaze)) return;
       calibration.startedAt = now;
     }
-    const sample = pursuitSample(frame, now, calibration.startedAt);
-    if (sample) calibration.samples.push(sample);
+    const record = pursuitRecord(frame, now, calibration.startedAt);
+    if (record) calibration.records.push(record);
     if (pursuitPoint(now - calibration.startedAt)) {
-      status(`시선 보정 중 · 표본 ${calibration.samples.length}개 · 움직이는 초록 점을 눈으로 따라가세요`);
+      status(`시선 보정 중 · 표본 ${calibration.records.length}개 · 움직이는 초록 점을 눈으로 따라가세요`);
       return;
     }
-    if (calibration.samples.length < MIN_PURSUIT_SAMPLES) {
-      calibrationFailed(`시선 표본이 ${calibration.samples.length}개뿐입니다. 얼굴이 카메라에 잘 보이는지 확인하고 다시 보정하세요.`);
+    if (calibration.records.length < MIN_PURSUIT_RECORDS) {
+      calibrationFailed(`시선 표본이 ${calibration.records.length}개뿐입니다. 얼굴이 카메라에 잘 보이는지 확인하고 다시 보정하세요.`);
       return;
     }
     try {
-      model = fit(calibration.samples);
+      model = fitPursuit(calibration.records);
     } catch (error) { calibrationFailed(error.message); return; }
     // 검증 점을 따로 보지 않는다. 표본 하나를 빼고 회귀한 뒤 뺀 표본을 맞혀 보는 교차 검증 오차를 쓴다
     const rms = model.crossError;
@@ -161,8 +166,9 @@
     // 검증 오차만큼 후보 탐색 반경도 넓어지도록 모델 오차에 반영한다
     model.error = Math.max(model.error, rms);
     calibration = null; shadow.querySelector('#veil').hidden = true;
+    shadow.querySelector('#panel').classList.remove('calibrating');
     send({type: 'calibrated', model, layout});
-    status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · 검증 오차 약 ${pixelRms}px · ${CLICK_HINT}.`);
+    status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · 검증 오차 약 ${pixelRms}px · 시선 지연 ${model.lag}ms · ${CLICK_HINT}.`);
   }
   function calibrationFailed(message) {
     running = false; clearInterval(timer); invalidate();
