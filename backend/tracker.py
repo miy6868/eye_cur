@@ -79,14 +79,34 @@ def face_warp(points, camera, distortion):
     # 시선 각도는 이 둘이 바뀌면 같은 화면 점을 봐도 달라지므로 따로 내보내 측정한다
     # 부호: 사용자 기준 오른쪽으로 고개를 기울이면 -
     head_x = rotation[:, 0]
+    # 얼굴이 향하는 방향(얼굴 모델의 z축 반대). 끄덕임(pitch, + = 아래로 숙임)과 좌우 돌림(yaw)을 구한다
+    face_dir = -rotation[:, 2]
     head = {"headRoll": round(float(np.degrees(np.arctan2(head_x[1], head_x[0]))), 1),
-            "headDistance": round(float(distance))}
+            "headDistance": round(float(distance)),
+            "headPitch": round(float(np.degrees(np.arctan2(face_dir[1], -face_dir[2]))), 1),
+            "headYaw": round(float(np.degrees(np.arctan2(face_dir[0], -face_dir[2]))), 1)}
     return warp, head
 
 
 def normalize_face(frame, points, camera, distortion):
     warp, head = face_warp(points, camera, distortion)
     return cv2.warpPerspective(frame, warp, (224, 224)), head
+
+
+def iris_offset(points):
+    """홍채 중심이 두 눈 구석 사이 어디에 있는지 [가로, 세로] (눈 너비 단위, 두 눈 평균).
+    GazeTR과 달리 눈 모양만 보는 기하 단서라, 두 값을 비교해 어느 쪽이 안정적인지 측정한다."""
+    offsets = []
+    for corners in ([33, 133], [362, 263]):
+        a, b = points[corners]
+        middle = (a + b) / 2
+        width = max(np.linalg.norm(b - a), 1e-6)
+        # 두 홍채 중심(468, 473) 중 이 눈에 가까운 것을 쓴다: 번호와 눈의 짝을 외우지 않아도 된다
+        iris = min(points[[468, 473]], key=lambda p: np.linalg.norm(p - middle))
+        axis = (b - a) / width
+        d = (iris - middle) / width
+        offsets.append([d @ axis, axis[0] * d[1] - axis[1] * d[0]])
+    return [round(float(v), 4) for v in np.mean(offsets, axis=0)]
 
 
 def eye_ratio(points, ids):
@@ -101,7 +121,7 @@ class Tracker:
         cv2.setNumThreads(1)
         self.model = load_model()
         self.mesh = mp.solutions.face_mesh.FaceMesh(
-            max_num_faces=1, refine_landmarks=False,
+            max_num_faces=1, refine_landmarks=True,
             min_detection_confidence=0.6, min_tracking_confidence=0.6)
         self.eyes = EyeState()
         self.mouth = MouthState()
@@ -168,6 +188,9 @@ class Tracker:
             return payload
         try:
             face, self.gaze_head = normalize_face(frame, points, camera, np.zeros(5))
+            # 홍채 점(468~477)은 refine_landmarks=True일 때만 있다
+            if len(points) >= 478:
+                self.gaze_head["iris"] = iris_offset(points)
             self.gaze_future = self.gaze_executor.submit(self.infer, face, stamp)
         except (ValueError, cv2.error):
             payload["gazeError"] = "얼굴 정규화가 불안정합니다. 얼굴 전체가 카메라에 보이도록 조정하세요."

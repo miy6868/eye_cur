@@ -5,7 +5,7 @@ from pathlib import Path
 os.environ.setdefault('MPLCONFIGDIR', str(Path(__file__).resolve().parents[1] / '.cache/matplotlib'))
 import cv2
 import numpy as np
-from backend.tracker import FACE_3D, FACE_IDS, face_warp
+from backend.tracker import FACE_3D, FACE_IDS, face_warp, iris_offset
 
 
 class NormalizationTests(unittest.TestCase):
@@ -35,6 +35,21 @@ class NormalizationTests(unittest.TestCase):
         _, head = face_warp(points, camera, np.zeros(5))
         self.assertAlmostEqual(head["headRoll"], 5.7, delta=.1)
         self.assertAlmostEqual(head["headDistance"], np.linalg.norm(center), delta=1)
+
+    def test_head_pitch_and_yaw_are_reported(self):
+        # x축으로 돌리면 끄덕임(+ = 아래로 숙임), y축으로 돌리면 좌우 돌림
+        points, camera, _ = self.fixture([.1, 0, 0])
+        self.assertAlmostEqual(face_warp(points, camera, np.zeros(5))[1]["headPitch"], 5.7, delta=.1)
+        points, camera, _ = self.fixture([0, .1, 0])
+        self.assertAlmostEqual(face_warp(points, camera, np.zeros(5))[1]["headYaw"], -5.7, delta=.1)
+
+    def test_iris_offset_is_measured_in_eye_widths(self):
+        points = np.zeros((478, 2))
+        points[[33, 133, 362, 263]] = [[100, 200], [140, 200], [180, 200], [220, 200]]
+        # 두 홍채 모두 눈 가운데에서 오른쪽으로 4px(눈 너비 40px의 0.1), 아래로 2px(0.05)
+        points[468] = [204, 202]
+        points[473] = [124, 202]
+        np.testing.assert_allclose(iris_offset(points), [.1, .05])
 
     def test_mouth_motion_does_not_change_crop(self):
         points, camera, _ = self.fixture([0.02, 0.05, 0])
