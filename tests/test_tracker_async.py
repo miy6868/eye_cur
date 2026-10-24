@@ -30,7 +30,7 @@ class AsyncTrackerTests(unittest.TestCase):
         try:
             with patch('backend.tracker.load_model', return_value=Model()), patch('backend.tracker.LatestCamera', Camera), \
                  patch('backend.tracker.mp.solutions.face_mesh.FaceMesh', return_value=Mesh()), \
-                 patch('backend.tracker.normalize_face', return_value=np.zeros((224, 224, 3), dtype=np.uint8)), \
+                 patch('backend.tracker.normalize_face', return_value=(np.zeros((224, 224, 3), dtype=np.uint8), {})), \
                  patch('backend.tracker.eye_ratio', return_value=.3) as ratio:
                 tracker = Tracker()
                 for _ in range(25): tracker.read()

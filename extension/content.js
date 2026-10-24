@@ -6,7 +6,7 @@
   // 클릭 방식: 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 기존 양눈 감기 클릭
   const CLICK_MODE = 'mouth';
   const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average} = globalThis.GazeCore;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -70,7 +70,7 @@
     const saved = message.calibration;
     if (saved?.layout === layout) model = saved.model;
     else if (saved) send({type: 'calibrationInvalid'});
-    calibration = model ? null : {startedAt: null, records: []}; // startedAt: 첫 시선 결과가 오면 점이 출발한다
+    calibration = model ? null : {startedAt: null, records: [], heads: []}; // startedAt: 첫 시선 결과가 오면 점이 출발한다
     host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
     shadow = host.attachShadow({mode: 'closed'});
@@ -85,8 +85,8 @@
       #panel{position:fixed;bottom:14px;left:14px;max-width:520px;border:1px solid #ffffff24;background:#142236;color:#fff;border-radius:9px;padding:10px 14px;font:13px/1.5 system-ui;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
       button{pointer-events:auto;white-space:nowrap;border:0;border-radius:5px;padding:6px 9px;background:#33465e;color:#fff;cursor:pointer}
       /* 보정 중에는 정보 상자를 화면 가운데 두 줄 사이로 옮겨 점을 가리지 않게 한다 */
-      #panel.calibrating{top:calc(50% + 8px);bottom:auto;left:50%;transform:translateX(-50%)}
-      #panel.calibrating :is(#filter,#jitter,#graph){display:none}
+      #panel.calibrating{top:calc(50% + 8px);bottom:auto;left:50%;transform:translateX(-50%);max-width:min(760px,90vw)}
+      #panel.calibrating :is(#mouth,#filter,#jitter,#graph){display:none}
       #raw{position:fixed;width:6px;height:6px;border-radius:50%;background:#ff3b3b;transform:translate(-50%,-50%)}
       #graph{background:#0c1728;border-radius:4px}
       #cursor{position:fixed;width:12px;height:12px;border:2px solid #fff;border-radius:50%;background:#176cff;transform:translate(-50%,-50%)}
@@ -94,7 +94,7 @@
       </style>
       <div id="veil"><svg id="path" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${PURSUIT_PATH.map(p => p.map(v => v * 100).join(' ')).join(' ')}" fill="none" stroke="#8a94a6" stroke-width="3" stroke-dasharray="8 6" vector-effect="non-scaling-stroke"/></svg><div id="guide">머리를 고정하고, 회색 선을 따라 움직이는 초록 점을 눈으로 따라가세요.<br>꺾이는 곳에서는 잠시 멈춥니다.</div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
-      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
+      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
     shadow.querySelector('#stop').onclick = () => stop('중지됨');
     shadow.querySelector('#recalibrate').onclick = () => send({type: 'recalibrate'});
@@ -133,7 +133,11 @@
       calibration.startedAt = now;
     }
     const record = pursuitRecord(frame, now, calibration.startedAt);
-    if (record) calibration.records.push(record);
+    if (record) {
+      calibration.records.push(record);
+      // 보정할 때의 머리 상태를 기억해 두었다가 사용 중 얼마나 달라졌는지 비교한다
+      if (Number.isFinite(frame.headRoll)) calibration.heads.push([frame.headRoll, frame.headDistance]);
+    }
     if (pursuitPoint(now - calibration.startedAt)) {
       status(`시선 보정 중 · 표본 ${calibration.records.length}개 · 움직이는 초록 점을 눈으로 따라가세요`);
       return;
@@ -144,6 +148,10 @@
     }
     try {
       model = fitPursuit(calibration.records);
+      if (calibration.heads.length) {
+        const [roll, distance] = average(calibration.heads);
+        model.head = {roll, distance};
+      }
     } catch (error) { calibrationFailed(error.message); return; }
     // 검증 점을 따로 보지 않는다. 표본 하나를 빼고 회귀한 뒤 뺀 표본을 맞혀 보는 교차 검증 오차를 쓴다
     const rms = model.crossError;
@@ -178,6 +186,17 @@
     // Keep the session/camera alive so the retry button can start calibration again.
     send({type: 'calibrationInvalid'});
   }
+  // 머리 기울기·거리를 보여 주고, 보정할 때와 얼마나 달라졌는지 비교한다
+  // 이 값이 많이 바뀔수록 가장자리 오차가 커지는지 확인하려는 측정용 표시
+  function showHead(message) {
+    let text = `머리 기울기 ${message.headRoll.toFixed(1)}° · 거리 ${message.headDistance}mm`;
+    if (model?.head) {
+      const roll = message.headRoll - model.head.roll;
+      const distance = (message.headDistance / model.head.distance - 1) * 100;
+      text += ` (보정 대비 ${roll >= 0 ? '+' : ''}${roll.toFixed(1)}°, ${distance >= 0 ? '+' : ''}${distance.toFixed(0)}%)`;
+    }
+    shadow.querySelector('#head').textContent = text;
+  }
   function candidates(x, y) {
     const radius = Math.max(100, Math.min(240, (model.error + .06) * Math.min(innerWidth, innerHeight) * 2));
     return GazeDOM.collect(x, y, radius, element => {
@@ -209,6 +228,7 @@
     // 문턱값(벌림 > 0.30, 다뭄 < 0.20)을 맞출 수 있게 MAR 값을 그대로 보여 준다
     const mar = Number.isFinite(message.mar) ? message.mar.toFixed(2) : '-';
     shadow.querySelector('#mouth').textContent = `입 ${message.mouthOpen ? '벌림' : '다뭄'} · MAR ${mar}`;
+    if (Number.isFinite(message.headRoll)) showHead(message);
     if (!document.hasFocus() || document.hidden || !message.valid) {
       invalidate(); hideCursor();
       status(!message.valid ? (message.error || '얼굴을 찾는 중… 카메라를 바라보세요.') : '페이지로 돌아오면 계속합니다.');
