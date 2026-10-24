@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, checkErrors} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, checkErrors, gazeInput} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -118,6 +118,28 @@ test('check errors use the median prediction and skip points without frames', ()
   ]);
   assert.ok(Math.abs(errors[0][0] - .05) < 1e-9 && Math.abs(errors[0][1]) < 1e-9);
   assert.equal(errors[1], null);
+});
+
+test('regression input adds iris position to GazeTR gaze when available', () => {
+  assert.deepEqual(gazeInput({gaze: [.1, .2], iris: [.03, -.04]}), [.1, .2, .03, -.04]);
+  assert.deepEqual(gazeInput({gaze: [.1, .2]}), [.1, .2]);
+  assert.deepEqual(gazeInput({gaze: [.1, .2], iris: [NaN, 0]}), [.1, .2]);
+});
+test('4-input regression uses iris to fix what GazeTR alone cannot', () => {
+  // GazeTR 세로 값에 시간에 따라 바뀌는 치우침(drift)이 섞였고, 홍채 세로 값은 정확하다고 가정
+  const samples = [];
+  for (let i = 0; i < 200; i++) {
+    const target = [(i % 20) / 19, Math.floor(i / 20) / 9];
+    const drift = Math.sin(i) * .05;
+    // 실제처럼 홍채 가로 값에도 GazeTR과 무관한 작은 흔들림이 있다 (완전히 비례하면 회귀를 풀 수 없다)
+    samples.push({gaze: [target[0] - .5, target[1] - .5 + drift, (target[0] - .5) * .2 + Math.cos(i * 7) * .002, (target[1] - .5) * .1], target});
+  }
+  const model = fit(samples);
+  const twoInputs = fit(samples.map(s => ({...s, gaze: s.gaze.slice(0, 2)})));
+  assert.ok(model.crossError < .01);
+  assert.ok(twoInputs.crossError > .02);
+  // 예전 2개 입력 보정에 4개 입력을 넣어도 앞의 2개만 쓴다
+  assert.deepEqual(predict(twoInputs, [.1, .2, 9, 9]), predict(twoInputs, [.1, .2]));
 });
 
 test('16-point calibration selects nonlinearity only when held-out points improve', () => {
