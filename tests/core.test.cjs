@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, checkErrors, gazeInput, correctDrift} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, checkErrors, gazeInput, correctDrift, lidSlopes, removeLid} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -152,6 +152,21 @@ test('a click moves the offset halfway toward the clicked element center', () =>
   const wide = correctDrift([0, 0], [460, 360], [350, 280, 300, 40], [1000, 600]);
   assert.equal(wide[0], 0);
   assert.ok(Math.abs(wide[1] + .05) < 1e-9);
+});
+
+test('lid slopes measure how inputs move with eye openness and remove it', () => {
+  // 한 점을 보는 동안 눈 열림만 0.8~1.2로 바뀌고, 세로 입력(1, 3번째)이 그에 따라 밀린다고 가정
+  const frames = Array.from({length: 40}, (_, i) => {
+    const openness = .8 + .4 * (i % 10) / 9;
+    return {openness, gaze: [.1, .2 + .3 * (openness - 1), .05, -.07 + .02 * (openness - 1)]};
+  });
+  const slopes = lidSlopes(frames);
+  [0, .3, 0, .02].forEach((v, k) => assert.ok(Math.abs(slopes[k] - v) < 1e-9));
+  // 눈을 가늘게 떠도 평소 눈 열림(1)일 때의 값으로 돌아온다
+  removeLid(frames[0].gaze, frames[0].openness, slopes).forEach((v, k) => assert.ok(Math.abs(v - [.1, .2, .05, -.07][k]) < 1e-9));
+  // 눈 뜬 정도를 거의 안 바꿨으면 보정하지 않는다
+  assert.equal(lidSlopes(frames.map(f => ({...f, openness: 1 + f.openness / 100}))), null);
+  assert.deepEqual(removeLid([.1, .2], .9, null), [.1, .2]);
 });
 
 test('16-point calibration selects nonlinearity only when held-out points improve', () => {
