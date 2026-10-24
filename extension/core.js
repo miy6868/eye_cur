@@ -7,10 +7,13 @@
   const MOUTH_MIN_MS = 500;       // 이보다 짧게 벌리면 말하는 중으로 보고 무시
   const MOUTH_MAX_MS = 2000;      // 이보다 오래 벌리면 클릭 취소
   const MOUTH_COOLDOWN_MS = 800;  // 클릭 직후 연속 클릭 방지
-  // CalibrationCollector 설정
-  const SETTLE_MS = 600;   // 점이 나타난 뒤 눈이 옮겨 갈 때까지 기다리는 시간
-  const COLLECT_MS = 1000; // 점 하나에서 표본을 모으는 시간
-  const MIN_SAMPLES = 6;   // CPU가 느려도 최소 이만큼은 모은다
+  // 움직이는 점 보정 설정
+  const PURSUIT_SPEED = .3;      // 점이 1초에 화면의 30%만큼 움직인다: 눈이 놓치지 않고 따라갈 수 있는 속도
+  const PURSUIT_HOLD_MS = 1000;  // 출발 전 점을 잠시 멈춰 두어 눈이 먼저 점을 찾게 한다
+  const PURSUIT_TURN_MS = 400;   // 방향이 꺾인 직후에는 눈이 아직 새 방향을 못 따라가므로 표본을 버린다
+  // ㄹ자로 5줄을 훑는다: 고정 점 9개 사이의 중간 위치에서도 표본을 얻는다
+  const PURSUIT_PATH = [.05, .275, .5, .725, .95].flatMap((y, row) =>
+    row % 2 ? [[.95, y], [.05, y]] : [[.05, y], [.95, y]]);
   function solve(matrix, vector) {
     const a = matrix.map((row, i) => [...row, vector[i]]);
     for (let i = 0; i < a.length; i++) {
@@ -28,45 +31,32 @@
     }
     return a.map(row => row[a.length]);
   }
-  function median(values) {
-    const sorted = [...values].sort((a, b) => a - b);
-    const middle = Math.floor(sorted.length / 2);
-    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-  }
-  // 한 점에서 모은 시선 값들의 대표값을 구한다
-  function summarize(readings) {
-    const valid = readings.filter(g => Array.isArray(g) && g.length === 2 && g.every(Number.isFinite));
-    if (valid.length < MIN_SAMPLES) return {ready: false, count: valid.length};
-    // 중앙값에서 너무 먼 값(점으로 눈을 옮기는 중이던 값 등)은 버린다
-    const center = [0, 1].map(k => median(valid.map(g => g[k])));
-    const mad = [0, 1].map(k => Math.max(.001, 1.4826 * median(valid.map(g => Math.abs(g[k] - center[k])))));
-    const kept = valid.filter(g => g.every((v, k) => Math.abs(v - center[k]) <= 3.5 * mad[k]));
-    if (kept.length < MIN_SAMPLES) return {ready: false, count: kept.length};
-    // 평균 대신 중앙값: 튀는 값 하나에 덜 흔들린다
-    const gaze = [0, 1].map(k => median(kept.map(g => g[k])));
-    return {ready: true, count: kept.length, gaze};
-  }
-  class CalibrationCollector {
-    constructor(shownAt) { this.shownAt = shownAt; this.readings = []; this.resumeAt = shownAt + SETTLE_MS; }
-    add(frame, now) {
-      const age = frame.captureAgeMs ?? frame.inferenceMs ?? 0;
-      if (!frame.valid || frame.closed || frame.closing || frame.eyesReady === false) {
-        this.resumeAt = now + 350;
-        return {ready: false, count: this.readings.length, reason: 'eyes'};
+  // 보정을 시작한 지 elapsed(ms) 뒤의 점 위치. 경로가 끝났으면 null
+  function pursuitPoint(elapsed) {
+    let distance = Math.max(0, elapsed - PURSUIT_HOLD_MS) / 1000 * PURSUIT_SPEED; // 지금까지 움직인 거리
+    for (let i = 1; i < PURSUIT_PATH.length; i++) {
+      const [a, b] = [PURSUIT_PATH[i - 1], PURSUIT_PATH[i]];
+      const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (distance <= length) {
+        const point = [0, 1].map(k => a[k] + (b[k] - a[k]) * distance / length);
+        // 이 구간에 들어와 일정 시간이 지나야 눈이 점과 같은 방향·속도로 움직인다
+        const steady = distance >= PURSUIT_SPEED * PURSUIT_TURN_MS / 1000;
+        return {point, steady};
       }
-      // 촬영 시각(now - age) 기준으로 판단해야 CPU가 늦게 낸 이전 점의 결과가 섞이지 않는다
-      if (!Number.isFinite(age) || age < 0 || age > 500 || now - age < Math.max(this.shownAt + SETTLE_MS, this.resumeAt)) {
-        return {ready: false, count: this.readings.length, reason: 'settling'};
-      }
-      if (!Array.isArray(frame.gaze) || frame.gaze.length !== 2 || !frame.gaze.every(Number.isFinite)) {
-        return {ready: false, count: this.readings.length, reason: 'invalid'};
-      }
-      this.readings.push({gaze: frame.gaze, time: now - age});
-      const result = summarize(this.readings.map(r => r.gaze));
-      // 안정될 때까지 기다리지 않고 정해진 시간만 모은다: 오래 걸리면 그사이 머리가 움직여 더 부정확해진다
-      if (this.readings.at(-1).time - this.readings[0].time < COLLECT_MS) result.ready = false;
-      return result;
+      distance -= length;
     }
+    return null;
+  }
+  // 프레임 하나를 보정 표본 {gaze, target}으로 바꾼다. 쓸 수 없는 프레임이면 null
+  function pursuitSample(frame, now, startedAt) {
+    if (!frame.valid || frame.closed || frame.closing || frame.eyesReady === false) return null;
+    if (!Array.isArray(frame.gaze) || frame.gaze.length !== 2 || !frame.gaze.every(Number.isFinite)) return null;
+    const age = frame.captureAgeMs ?? frame.inferenceMs ?? 0;
+    if (!Number.isFinite(age) || age < 0 || age > 500) return null;
+    // 결과가 도착한 때가 아니라 촬영한 때의 점 위치와 짝짓는다: 그사이 점이 이미 움직였기 때문
+    const step = pursuitPoint(now - age - startedAt);
+    if (!step || !step.steady) return null;
+    return {gaze: frame.gaze, target: step.point};
   }
   function features(gaze, mean, scale, degree) {
     const [x, y] = gaze.map((v, k) => (v - mean[k]) / scale[k]);
@@ -252,6 +242,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, summarize, CalibrationCollector};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, pursuitPoint, pursuitSample};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

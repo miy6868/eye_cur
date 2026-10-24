@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, summarize, CalibrationCollector} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, pursuitPoint, pursuitSample} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -68,64 +68,50 @@ test('distance uses element boundary, not only its center', () => {
   assert.equal(distanceToRect(120, 30, [10, 10, 100, 40]), 10);
 });
 
-test('calibration rejects sparse readings but removes isolated outliers', () => {
-  const steady = Array.from({length: 14}, (_, i) => [.1 + (i % 3 - 1) * .001, -.2]);
-  assert.equal(summarize(steady.slice(0, 5)).ready, false);
-  const result = summarize([...steady, [.9, .8], [-.6, -.7]]);
-  assert.equal(result.ready, true);
-  assert.ok(Math.abs(result.gaze[0] - .1) < .002);
-  assert.equal(result.count, 14);
+test('pursuit dot holds, then sweeps the screen in a zigzag and ends', () => {
+  // 출발 전 1초는 멈춰 있고 표본으로 쓰지 않는다
+  assert.deepEqual(pursuitPoint(0), {point: [.05, .05], steady: false});
+  assert.deepEqual(pursuitPoint(999).point, [.05, .05]);
+  // 1초에 화면 30%: 출발 2초 뒤에는 첫 줄의 0.65 지점
+  const moving = pursuitPoint(3000);
+  assert.ok(Math.abs(moving.point[0] - .65) < 1e-9 && moving.point[1] === .05 && moving.steady);
+  // 첫 줄 끝(3초)을 지나 아래로 꺾인 직후는 버린다
+  const turned = pursuitPoint(1000 + 3000 + 100);
+  assert.equal(turned.point[0], .95);
+  assert.equal(turned.steady, false);
+  // 5줄(4.5) + 줄 사이 4번(0.9) = 5.4 거리 = 18초
+  assert.ok(pursuitPoint(1000 + 17900));
+  assert.equal(pursuitPoint(1000 + 18100), null);
 });
-test('CPU-delayed frames from the previous point are excluded', () => {
-  const c = new CalibrationCollector(1000);
-  // Arrives after settling but was captured before settling finished.
-  c.add({valid: true, gaze: [4, 4], captureAgeMs: 400}, 1900);
-  assert.equal(c.readings.length, 0);
-  let result;
-  for (let i = 0; i < 14; i++) result = c.add({valid: true, gaze: [.1, .2], captureAgeMs: 120}, 2200 + i * 150);
-  assert.equal(result.ready, true);
-  assert.deepEqual(result.gaze, [.1, .2]);
+test('pursuit samples pair gaze with the dot position at capture time', () => {
+  // 3000ms에 도착했지만 200ms 전에 찍은 프레임 → 2800ms의 점 위치
+  const sample = pursuitSample({valid: true, gaze: [.1, .2], captureAgeMs: 200}, 3000, 0);
+  assert.deepEqual(sample.gaze, [.1, .2]);
+  assert.deepEqual(sample.target, pursuitPoint(2800).point);
+  assert.equal(pursuitSample({valid: true, closed: true, gaze: [.1, .2]}, 3000, 0), null);
+  assert.equal(pursuitSample({valid: true}, 3000, 0), null);
+  assert.equal(pursuitSample({valid: true, gaze: [.1, .2], captureAgeMs: 900}, 3000, 0), null);
+  assert.equal(pursuitSample({valid: true, gaze: [.1, .2]}, 500, 0), null);
 });
-test('closed eyes and immediate reopening do not enter calibration data', () => {
-  const c = new CalibrationCollector(0);
-  c.add({valid: true, closed: true}, 1500);
-  c.add({valid: true, gaze: [.5, .5], captureAgeMs: 100}, 1900);
-  assert.equal(c.readings.length, 0);
-  c.add({valid: true, gaze: [.1, .2], captureAgeMs: 100}, 2000);
-  assert.equal(c.readings.length, 1);
-});
-
-test('each point collects for a fixed 1 second, then uses the median', () => {
-  const collector = new CalibrationCollector(0);
-  let result;
-  // 0.6초 안정화 뒤부터 0.1초마다 표본. 1초가 안 됐으면 표본이 충분해도 기다린다
-  for (let i = 0; i < 10; i++) result = collector.add({valid: true, gaze: [.1 + (i % 2 ? .04 : -.04), .2]}, 600 + i * 100);
-  assert.equal(result.ready, false);
-  result = collector.add({valid: true, gaze: [.1, .2]}, 1600);
-  assert.equal(result.ready, true);
-  assert.ok(Math.abs(result.gaze[0] - .1) < 1e-8);
-});
-
-test('slow CPU sampling waits until the minimum sample count', () => {
-  const collector = new CalibrationCollector(0);
-  let result;
-  for (let i = 0; i < 5; i++) result = collector.add({valid: true, gaze: [.1, .2], captureAgeMs: 200}, 1200 + i * 600);
-  assert.equal(result.ready, false);
-  result = collector.add({valid: true, gaze: [.1, .2], captureAgeMs: 200}, 1200 + 5 * 600);
-  assert.equal(result.ready, true);
-  assert.equal(result.count, 6);
-});
-
-test('eye-only frames and short face loss preserve collected calibration samples', () => {
-  const collector = new CalibrationCollector(0);
-  for (let i = 0; i < 6; i++) collector.add({valid: true, gaze: [.1, .2]}, 1000 + i * 200);
-  for (let i = 0; i < 10; i++) collector.add({valid: true}, 2050 + i * 20);
-  collector.add({valid: false}, 2300);
-  assert.equal(collector.readings.length, 6);
-  let result;
-  for (let i = 0; i < 6; i++) result = collector.add({valid: true, gaze: [.1, .2]}, 2700 + i * 200);
-  assert.equal(result.ready, true);
-  assert.equal(result.count, 12);
+test('pursuit samples fill the gaps between the old 9 points', () => {
+  // 눈이 점을 정확히 따라갔다고 가정하고 비선형 시선 → 화면 관계를 학습
+  const mapping = ([x, y]) => [.5 + .8 * x + .25 * y * y, .5 + .8 * y + .2 * x * y];
+  const inverse = ([u, v]) => {
+    let g = [u - .5, v - .5];
+    for (let i = 0; i < 50; i++) g = g.map((value, k) => value + ([u, v][k] - mapping(g)[k]) / .8);
+    return g;
+  };
+  const samples = [];
+  for (let t = 0; t < 20000; t += 110) {
+    const sample = pursuitSample({valid: true, gaze: [0, 0]}, t, 0);
+    if (sample) samples.push({gaze: inverse(sample.target), target: sample.target});
+  }
+  const model = fit(samples);
+  assert.equal(model.degree, 2);
+  // 줄과 줄 사이의 중간 위치도 맞힌다
+  for (const target of [[.27, .16], [.73, .38], [.5, .84]]) {
+    assert.ok(Math.hypot(...predict(model, inverse(target)).map((v, k) => v - target[k])) < .005);
+  }
 });
 
 test('16-point calibration selects nonlinearity only when held-out points improve', () => {
