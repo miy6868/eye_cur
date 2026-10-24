@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, checkErrors} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -107,6 +107,17 @@ test('pursuit fit finds the gaze delay and fills the gaps between rows', () => {
   for (const target of [[.27, .2], [.73, .5], [.5, .8], [.05, .95]]) {
     assert.ok(Math.hypot(...predict(model, inverse(target)).map((v, k) => v - target[k])) < .005);
   }
+});
+
+test('check errors use the median prediction and skip points without frames', () => {
+  const model = fit([0, .5, 1].flatMap(x => [0, .5, 1].map(y => ({gaze: [x, y], target: [x, y]}))));
+  // 세 프레임 중 하나가 크게 튀어도 중앙값은 그대로
+  const errors = checkErrors(model, [
+    {target: [.25, .2], frames: [{gaze: [.3, .2]}, {gaze: [.3, .2]}, {gaze: [.9, .9]}]},
+    {target: [.75, .8], frames: []},
+  ]);
+  assert.ok(Math.abs(errors[0][0] - .05) < 1e-9 && Math.abs(errors[0][1]) < 1e-9);
+  assert.equal(errors[1], null);
 });
 
 test('16-point calibration selects nonlinearity only when held-out points improve', () => {

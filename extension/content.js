@@ -6,7 +6,7 @@
   // 클릭 방식: 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 기존 양눈 감기 클릭
   const CLICK_MODE = 'mouth';
   const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors} = globalThis.GazeCore;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -27,6 +27,11 @@
   const JITTER_MS = 1500;
   // 고정 점 대신 움직이는 점을 따라 보게 해 표본이 화면 전체에 고르게 퍼지게 한다
   const MIN_PURSUIT_RECORDS = 40; // 경로를 다 돌았는데 이보다 적으면 얼굴을 자주 놓친 것이므로 실패 처리
+  // 검증 점: 보정 경로(4줄) 사이, 옛 9점 사이 위치. 보정에 쓰지 않은 곳에서 실제 오차를 잰다
+  const CHECK_POINTS = [[.25, .2], [.75, .2], [.75, .8], [.25, .8]];
+  const CHECK_SETTLE_MS = 600;   // 점이 나타난 뒤 눈이 옮겨 갈 때까지 버리는 시간
+  const CHECK_COLLECT_MS = 1000; // 점 하나에서 모으는 시간
+  const CHECK_TIMEOUT_MS = 4000; // 얼굴을 놓쳐도 이 시간이 지나면 다음 점으로 넘어간다
   let currentContext;
   let running = false, host, shadow, model, calibration, smooth, clicker;
   let selected = null, pending = null, requestNumber = 0, lastRequest = 0;
@@ -70,7 +75,7 @@
     const saved = message.calibration;
     if (saved?.layout === layout) model = saved.model;
     else if (saved) send({type: 'calibrationInvalid'});
-    calibration = model ? null : {startedAt: null, records: [], heads: []}; // startedAt: 첫 시선 결과가 오면 점이 출발한다
+    calibration = model ? null : {startedAt: null, records: [], check: null, checks: []}; // startedAt: 첫 시선 결과가 오면 점이 출발한다
     host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
     shadow = host.attachShadow({mode: 'closed'});
@@ -127,6 +132,7 @@
     requestAnimationFrame(() => moveDot(owner));
   }
   function calibrate(frame, now) {
+    if (calibration.check) { check(frame, now); return; }
     if (calibration.startedAt === null) {
       // 카메라가 늦게 켜져도 점이 먼저 출발하지 않도록 첫 시선 결과에서 시계를 시작한다
       if (!Array.isArray(frame.gaze)) return;
@@ -134,9 +140,9 @@
     }
     const record = pursuitRecord(frame, now, calibration.startedAt);
     if (record) {
+      // 머리 상태도 같이 남긴다: 사용 중 보정 대비 차이 표시와 기록 분석용
+      if (Number.isFinite(frame.headRoll)) record.head = [frame.headRoll, frame.headDistance];
       calibration.records.push(record);
-      // 보정할 때의 머리 상태를 기억해 두었다가 사용 중 얼마나 달라졌는지 비교한다
-      if (Number.isFinite(frame.headRoll)) calibration.heads.push([frame.headRoll, frame.headDistance]);
     }
     if (pursuitPoint(now - calibration.startedAt)) {
       status(`시선 보정 중 · 표본 ${calibration.records.length}개 · 움직이는 초록 점을 눈으로 따라가세요`);
@@ -148,19 +154,54 @@
     }
     try {
       model = fitPursuit(calibration.records);
-      if (calibration.heads.length) {
-        const [roll, distance] = average(calibration.heads);
-        model.head = {roll, distance};
-      }
     } catch (error) { calibrationFailed(error.message); return; }
-    // 검증 점을 따로 보지 않는다. 표본 하나를 빼고 회귀한 뒤 뺀 표본을 맞혀 보는 교차 검증 오차를 쓴다
+    const heads = calibration.records.filter(r => r.head).map(r => r.head);
+    if (heads.length) {
+      const [roll, distance] = average(heads);
+      model.head = {roll, distance};
+    }
+    shadow.querySelector('#path').hidden = true;
+    shadow.querySelector('#guide').textContent = '검증: 초록 점이 나타나면 1초씩 바라보세요.';
+    showCheck(0, now);
+  }
+  // 검증 점 하나를 보여 준다
+  function showCheck(index, now) {
+    calibration.check = {index, shownAt: now};
+    calibration.checks[index] = {target: CHECK_POINTS[index], frames: []};
+    const dot = shadow.querySelector('#dot');
+    dot.style.left = `${CHECK_POINTS[index][0] * 100}vw`; dot.style.top = `${CHECK_POINTS[index][1] * 100}vh`;
+  }
+  function check(frame, now) {
+    const {index, shownAt} = calibration.check;
+    status(`검증 ${index + 1}/${CHECK_POINTS.length} · 초록 점을 바라보세요`);
+    // record.time은 점이 나타난 뒤 촬영까지 걸린 시간
+    const record = pursuitRecord(frame, now, shownAt);
+    if (record && record.time >= CHECK_SETTLE_MS) {
+      if (Number.isFinite(frame.headRoll)) record.head = [frame.headRoll, frame.headDistance];
+      calibration.checks[index].frames.push(record);
+    }
+    const done = record?.time >= CHECK_SETTLE_MS + CHECK_COLLECT_MS || now - shownAt > CHECK_TIMEOUT_MS;
+    if (!done) return;
+    if (index + 1 < CHECK_POINTS.length) { showCheck(index + 1, now); return; }
+    judge();
+  }
+  // 검증 점 오차를 계산하고 기록을 서버에 보낸 뒤, 쓸지 말지 정한다
+  function judge() {
+    const pixels = checkErrors(model, calibration.checks)
+      .filter(Boolean)
+      .map(([dx, dy]) => Math.round(Math.hypot(dx * innerWidth, dy * innerHeight)));
+    const checkPx = pixels.length ? Math.round(pixels.reduce((a, b) => a + b, 0) / pixels.length) : null;
+    // 나중에 회귀·입력을 바꿨을 때 같은 자료로 비교할 수 있도록 원래 값을 모두 남긴다
+    send({type: 'calibrationLog', screen: [innerWidth, innerHeight], lag: model.lag, degree: model.degree,
+      crossError: model.crossError, checkPixels: pixels, records: calibration.records, checks: calibration.checks});
+    // 교차 검증 오차: 표본 하나를 빼고 회귀한 뒤 뺀 표본을 맞혀 본 오차
     const rms = model.crossError;
     if (!Number.isFinite(rms)) { calibrationFailed('시선 좌표 계산에 실패했습니다. 다시 보정해 주세요.'); return; }
     // 화면 비율 단위 오차를 픽셀로 대략 바꾼다 (가로·세로 오차가 비슷하다고 본다)
     const pixelRms = Math.round(rms * Math.hypot(innerWidth, innerHeight) / Math.SQRT2);
     if (rms > .15) {
       // 학습은 끝났으니 버리지 않고, 오차를 보여 준 뒤 사용자가 계속할지 고르게 한다
-      calibration.result = {rms, pixelRms};
+      calibration.result = {rms, pixelRms, checkPx};
       const message = `교차 검증 오차 약 ${pixelRms}px로 기준보다 큽니다. 그래도 사용하거나 다시 보정하세요.`;
       shadow.querySelector('#guide').textContent = message;
       shadow.querySelector('#dot').hidden = true;
@@ -168,15 +209,16 @@
       status(message);
       return;
     }
-    finishCalibration({rms, pixelRms});
+    finishCalibration({rms, pixelRms, checkPx});
   }
-  function finishCalibration({rms, pixelRms}) {
+  function finishCalibration({rms, pixelRms, checkPx}) {
     // 검증 오차만큼 후보 탐색 반경도 넓어지도록 모델 오차에 반영한다
     model.error = Math.max(model.error, rms);
     calibration = null; shadow.querySelector('#veil').hidden = true;
     shadow.querySelector('#panel').classList.remove('calibrating');
     send({type: 'calibrated', model, layout});
-    status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · 검증 오차 약 ${pixelRms}px · 시선 지연 ${model.lag}ms · ${CLICK_HINT}.`);
+    const checked = checkPx === null ? '검증 점 표본 없음' : `검증 점 오차 약 ${checkPx}px`;
+    status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · ${checked} · 교차 검증 ${pixelRms}px · 시선 지연 ${model.lag}ms · ${CLICK_HINT}.`);
   }
   function calibrationFailed(message) {
     running = false; clearInterval(timer); invalidate();

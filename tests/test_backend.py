@@ -3,6 +3,8 @@ import json
 import os
 import unittest
 import threading
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -77,6 +79,25 @@ class SocketTests(unittest.TestCase):
                     while True: ws.receive_json()
         self.assertTrue(closed)
         self.assertFalse(server.active)
+
+    def test_calibration_log_is_appended(self):
+        class FakeTracker:
+            def read(self): return {'type': 'frame', 'valid': False, 'time': 10}
+            def close(self): pass
+        with tempfile.TemporaryDirectory() as folder:
+            log_file = Path(folder) / 'logs' / 'pursuit.jsonl'
+            with patch.object(server, 'LOG_FILE', log_file), \
+                 patch.dict('sys.modules', {'backend.tracker': SimpleNamespace(Tracker=FakeTracker)}):
+                with self.client.websocket_connect('/ws', headers={'origin': 'chrome-extension://test'}) as ws:
+                    ws.send_json({'token': server.TOKEN})
+                    ws.receive_json(); ws.receive_json()
+                    ws.send_json({'type': 'calibrationLog', 'lag': 100})
+                    ws.send_json({'type': 'stop'})
+                    with self.assertRaises(WebSocketDisconnect):
+                        while True: ws.receive_json()
+            saved = json.loads(log_file.read_text(encoding='utf-8'))
+            self.assertEqual(saved['lag'], 100)
+            self.assertIn('savedAt', saved)
 
     def test_cancel_old_tab_decision_keeps_camera_and_accepts_new_request(self):
         started, cancelled = threading.Event(), threading.Event()

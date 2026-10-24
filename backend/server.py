@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import secrets
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from fastapi.responses import FileResponse
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env", encoding="utf-8-sig")
 runtime_path = ROOT / "runtime.json"
+# 보정 분석용 기록. 한 줄에 보정 한 번 (시선 값·점 위치·검증 결과, 카메라 이미지는 없음)
+LOG_FILE = ROOT / "logs" / "pursuit.jsonl"
 if runtime_path.exists():
     TOKEN = json.loads(runtime_path.read_text())["token"]
 else:
@@ -107,6 +110,11 @@ async def socket(ws: WebSocket):
                     if decision_task and not decision_task.done():
                         continue
                     decision_task = asyncio.create_task(decide(client, message))
+                elif message.get("type") == "calibrationLog":
+                    LOG_FILE.parent.mkdir(exist_ok=True)
+                    message["savedAt"] = time.time()
+                    with open(LOG_FILE, "a", encoding="utf-8") as file:
+                        file.write(json.dumps(message, ensure_ascii=False) + "\n")
                 elif message.get("type") == "stop":
                     break
                 elif message.get("type") == "cancel" and decision_task:
