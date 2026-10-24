@@ -51,14 +51,20 @@
     }
     return null;
   }
-  // 프레임 하나를 기록 {gaze, time}으로 바꾼다. time은 보정 시작부터 촬영까지(ms). 쓸 수 없으면 null
+  // 회귀 입력: GazeTR 시선 각도 2개 + 홍채 위치 2개.
+  // 기록 분석에서 GazeTR 값은 시간이 지나면 세로로 흔들렸고, 홍채 위치를 더하면 검증 오차가 약 1/3 줄었다
+  function gazeInput(frame) {
+    const iris = Array.isArray(frame.iris) && frame.iris.length === 2 && frame.iris.every(Number.isFinite);
+    return iris ? [...frame.gaze, ...frame.iris] : frame.gaze;
+  }
+  // 프레임 하나를 기록 {gaze, time}으로 바꾼다. gaze는 회귀 입력(gazeInput). time은 보정 시작부터 촬영까지(ms). 쓸 수 없으면 null
   function pursuitRecord(frame, now, startedAt) {
     if (!frame.valid || frame.closed || frame.closing || frame.eyesReady === false) return null;
     if (!Array.isArray(frame.gaze) || frame.gaze.length !== 2 || !frame.gaze.every(Number.isFinite)) return null;
     const age = frame.captureAgeMs ?? frame.inferenceMs ?? 0;
     if (!Number.isFinite(age) || age < 0 || age > 500) return null;
     // 결과가 도착한 때가 아니라 촬영한 때를 쓴다: 그사이 점이 이미 움직였기 때문
-    return {gaze: frame.gaze, time: now - age - startedAt};
+    return {gaze: gazeInput(frame), time: now - age - startedAt};
   }
   // 기록마다 lag(ms) 전의 점 위치를 짝지어 회귀 표본 {gaze, target}을 만든다
   function pairPursuit(records, lag) {
@@ -71,6 +77,9 @@
   }
   // 카메라 버퍼·눈의 반응 때문에 시선은 점보다 조금 늦다. 그 지연을 모르므로 회귀 오차가 가장 작은 지연을 고른다
   function fitPursuit(records) {
+    // 홍채 값이 빠진 프레임이 섞이면 입력 개수가 달라지므로, 가장 긴 입력을 가진 기록만 쓴다
+    const size = Math.max(...records.map(r => r.gaze.length));
+    records = records.filter(r => r.gaze.length === size);
     let best = null;
     for (let lag = 0; lag <= MAX_LAG_MS; lag += 25) {
       const samples = pairPursuit(records, lag);
@@ -97,14 +106,21 @@
       return [0, 1].map(k => median(predictions.map(p => p[k])) - target[k]);
     });
   }
-  function features(gaze, mean, scale, degree) {
-    const [x, y] = gaze.map((v, k) => (v - mean[k]) / scale[k]);
-    return degree === 2 ? [1, x, y, x * x, x * y, y * y] : [1, x, y];
+  // 입력마다 평균 0, 표준편차 1로 맞춘 뒤 회귀 항을 만든다. 1차: 1, 각 입력. 2차: 거기에 두 입력의 곱을 모두 더한다
+  function features(input, mean, scale, degree) {
+    const z = mean.map((m, k) => (input[k] - m) / scale[k]);
+    const row = [1, ...z];
+    if (degree === 2) {
+      for (let i = 0; i < z.length; i++) for (let j = i; j < z.length; j++) row.push(z[i] * z[j]);
+    }
+    return row;
   }
   function regression(samples, degree, penalty = 0) {
-    const mean = [0, 1].map(k => samples.reduce((sum, s) => sum + s.gaze[k], 0) / samples.length);
-    const scale = [0, 1].map(k => Math.sqrt(samples.reduce((sum, s) => sum + (s.gaze[k] - mean[k]) ** 2, 0) / samples.length));
-    if (scale.some(x => x < 0.003)) throw new Error('시선 변화가 부족합니다. 조명과 카메라 위치를 확인하세요.');
+    const inputs = samples[0].gaze.map((_, k) => k);
+    const mean = inputs.map(k => samples.reduce((sum, s) => sum + s.gaze[k], 0) / samples.length);
+    const scale = inputs.map(k => Math.sqrt(samples.reduce((sum, s) => sum + (s.gaze[k] - mean[k]) ** 2, 0) / samples.length) || 1);
+    // GazeTR 값(앞 2개)이 거의 안 변했으면 점을 따라 보지 않은 것이다. 홍채 값은 원래 변화가 작아서 검사하지 않는다
+    if (scale.slice(0, 2).some(x => x < 0.003)) throw new Error('시선 변화가 부족합니다. 조명과 카메라 위치를 확인하세요.');
     const rows = samples.map(s => features(s.gaze, mean, scale, degree));
     const columns = Array.from({length: rows[0].length}, (_, i) => i);
     const gram = columns.map(i => columns.map(j => rows.reduce((sum, r) => sum + r[i] * r[j], 0) + (i === j && i > 0 ? penalty : 0)));
@@ -127,8 +143,9 @@
     linear.crossError = crossError(samples, 1, 0);
     if (samples.length < 16) return linear;
     const options = [.01, .1, 1].map(penalty => ({penalty, error: crossError(samples, 2, penalty)})).sort((a, b) => a.error - b.error);
-    // Select nonlinearity only when held-out calibration points improve materially.
-    if (options[0].error < linear.crossError * .85) {
+    // 교차 검증에서 2차가 5% 이상 나을 때만 2차를 쓴다.
+    // 움직이는 점 보정은 표본이 수백 개라 2차도 과적합이 적고, 실제 기록에서 검증 점 오차가 모두 줄었다
+    if (options[0].error < linear.crossError * .95) {
       const quadratic = regression(samples, 2, options[0].penalty);
       quadratic.crossError = options[0].error;
       return quadratic;
@@ -281,6 +298,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();
