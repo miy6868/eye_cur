@@ -74,12 +74,18 @@ def face_warp(points, camera, distortion):
     transform = np.stack([right, down, forward])
     scale = np.diag([1.0, 1.0, 600.0 / distance])
     normalized_camera = np.array([[960, 0, 112], [0, 960, 112], [0, 0, 1.]])
-    return normalized_camera @ scale @ transform @ np.linalg.inv(camera)
+    warp = normalized_camera @ scale @ transform @ np.linalg.inv(camera)
+    # 정규화가 지우는 머리 정보: 고개 기울기(두 눈을 잇는 선의 각도)와 카메라까지 거리.
+    # 시선 각도는 이 둘이 바뀌면 같은 화면 점을 봐도 달라지므로 따로 내보내 측정한다
+    head_x = rotation[:, 0]
+    head = {"headRoll": round(float(np.degrees(np.arctan2(head_x[1], head_x[0]))), 1),
+            "headDistance": round(float(distance))}
+    return warp, head
 
 
 def normalize_face(frame, points, camera, distortion):
-    warp = face_warp(points, camera, distortion)
-    return cv2.warpPerspective(frame, warp, (224, 224))
+    warp, head = face_warp(points, camera, distortion)
+    return cv2.warpPerspective(frame, warp, (224, 224)), head
 
 
 def eye_ratio(points, ids):
@@ -152,14 +158,15 @@ class Tracker:
                 gaze, gaze_stamp, duration = self.gaze_future.result()
                 age = round(time.monotonic() * 1000) - gaze_stamp
                 if gaze_stamp >= self.gaze_blocked_until and age <= 500:
-                    payload.update(gaze=gaze, gazeTime=gaze_stamp, captureAgeMs=age, inferenceMs=duration)
+                    payload.update(gaze=gaze, gazeTime=gaze_stamp, captureAgeMs=age, inferenceMs=duration,
+                                   **self.gaze_head)
             except Exception:
                 payload["gazeError"] = "시선 추론 실패 · 눈 상태 추적은 계속합니다."
             self.gaze_future = None
         if self.gaze_future or stamp < self.gaze_blocked_until:
             return payload
         try:
-            face = normalize_face(frame, points, camera, np.zeros(5))
+            face, self.gaze_head = normalize_face(frame, points, camera, np.zeros(5))
             self.gaze_future = self.gaze_executor.submit(self.infer, face, stamp)
         except (ValueError, cv2.error):
             payload["gazeError"] = "얼굴 정규화가 불안정합니다. 얼굴 전체가 카메라에 보이도록 조정하세요."
