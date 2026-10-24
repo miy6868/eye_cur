@@ -115,6 +115,8 @@ async def socket(ws: WebSocket):
                     message["savedAt"] = time.time()
                     with open(LOG_FILE, "a", encoding="utf-8") as file:
                         file.write(json.dumps(message, ensure_ascii=False) + "\n")
+                    # 서버 터미널에서 저장됐는지 바로 확인할 수 있게 한 줄 남긴다
+                    print(f"보정 기록 저장: {LOG_FILE} · 검증 점 오차 {message.get('checkPixels')}px", flush=True)
                 elif message.get("type") == "stop":
                     break
                 elif message.get("type") == "cancel" and decision_task:

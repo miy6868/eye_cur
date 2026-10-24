@@ -99,7 +99,7 @@
       </style>
       <div id="veil"><svg id="path" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${PURSUIT_PATH.map(p => p.map(v => v * 100).join(' ')).join(' ')}" fill="none" stroke="#8a94a6" stroke-width="3" stroke-dasharray="8 6" vector-effect="non-scaling-stroke"/></svg><div id="guide">머리를 고정하고, 회색 선을 따라 움직이는 초록 점을 눈으로 따라가세요.<br>꺾이는 곳에서는 잠시 멈춥니다.</div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
-      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
+      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
     shadow.querySelector('#stop').onclick = () => stop('중지됨');
     shadow.querySelector('#recalibrate').onclick = () => send({type: 'recalibrate'});
@@ -218,6 +218,8 @@
     shadow.querySelector('#panel').classList.remove('calibrating');
     send({type: 'calibrated', model, layout});
     const checked = checkPx === null ? '검증 점 표본 없음' : `검증 점 오차 약 ${checkPx}px`;
+    // 상태 줄은 다음 프레임에 바로 바뀌므로 보정 결과는 따로 계속 보여 준다
+    shadow.querySelector('#quality').textContent = `보정 결과: ${checked} · 시선 지연 ${model.lag}ms`;
     status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · ${checked} · 교차 검증 ${pixelRms}px · 시선 지연 ${model.lag}ms · ${CLICK_HINT}.`);
   }
   function calibrationFailed(message) {
