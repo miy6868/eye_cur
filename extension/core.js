@@ -8,11 +8,12 @@
   const MOUTH_MAX_MS = 2000;      // 이보다 오래 벌리면 클릭 취소
   const MOUTH_COOLDOWN_MS = 800;  // 클릭 직후 연속 클릭 방지
   // 움직이는 점 보정 설정
-  const PURSUIT_SPEED = .3;      // 점이 1초에 화면의 30%만큼 움직인다: 눈이 놓치지 않고 따라갈 수 있는 속도
-  const PURSUIT_HOLD_MS = 1000;  // 출발 전 점을 잠시 멈춰 두어 눈이 먼저 점을 찾게 한다
-  const PURSUIT_TURN_MS = 400;   // 방향이 꺾인 직후에는 눈이 아직 새 방향을 못 따라가므로 표본을 버린다
-  // ㄹ자로 5줄을 훑는다: 고정 점 9개 사이의 중간 위치에서도 표본을 얻는다
-  const PURSUIT_PATH = [.05, .275, .5, .725, .95].flatMap((y, row) =>
+  const PURSUIT_SPEED = .3;       // 점이 1초에 화면의 30%만큼 움직인다: 눈이 놓치지 않고 따라갈 수 있는 속도
+  const PURSUIT_STOP_MS = 800;    // 꺾이는 곳(가장자리)마다 멈춘다: 가장자리·모서리 표본을 확실히 얻는다
+  const PURSUIT_SETTLE_MS = 400;  // 멈추거나 출발한 직후에는 눈이 아직 점을 못 따라가므로 표본을 버린다
+  const MAX_LAG_MS = 300;         // 시선이 점보다 늦는 시간을 0~300ms 사이에서 찾는다
+  // ㄹ자로 4줄을 훑는다: 고정 점 사이의 중간 위치에서도 표본을 얻는다
+  const PURSUIT_PATH = [.05, .35, .65, .95].flatMap((y, row) =>
     row % 2 ? [[.95, y], [.05, y]] : [[.05, y], [.95, y]]);
   function solve(matrix, vector) {
     const a = matrix.map((row, i) => [...row, vector[i]]);
@@ -33,30 +34,54 @@
   }
   // 보정을 시작한 지 elapsed(ms) 뒤의 점 위치. 경로가 끝났으면 null
   function pursuitPoint(elapsed) {
-    let distance = Math.max(0, elapsed - PURSUIT_HOLD_MS) / 1000 * PURSUIT_SPEED; // 지금까지 움직인 거리
-    for (let i = 1; i < PURSUIT_PATH.length; i++) {
-      const [a, b] = [PURSUIT_PATH[i - 1], PURSUIT_PATH[i]];
-      const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      if (distance <= length) {
-        const point = [0, 1].map(k => a[k] + (b[k] - a[k]) * distance / length);
-        // 이 구간에 들어와 일정 시간이 지나야 눈이 점과 같은 방향·속도로 움직인다
-        const steady = distance >= PURSUIT_SPEED * PURSUIT_TURN_MS / 1000;
-        return {point, steady};
+    let time = elapsed;
+    for (let i = 0; i < PURSUIT_PATH.length; i++) {
+      const a = PURSUIT_PATH[i], b = PURSUIT_PATH[i + 1];
+      // 꼭짓점에서 멈춰 있는 구간
+      if (time < PURSUIT_STOP_MS) return {point: a, steady: time >= PURSUIT_SETTLE_MS};
+      time -= PURSUIT_STOP_MS;
+      if (!b) return null;
+      // 다음 꼭짓점으로 일정한 속도로 움직이는 구간
+      const duration = Math.hypot(b[0] - a[0], b[1] - a[1]) / PURSUIT_SPEED * 1000;
+      if (time < duration) {
+        const point = [0, 1].map(k => a[k] + (b[k] - a[k]) * time / duration);
+        return {point, steady: time >= PURSUIT_SETTLE_MS};
       }
-      distance -= length;
+      time -= duration;
     }
     return null;
   }
-  // 프레임 하나를 보정 표본 {gaze, target}으로 바꾼다. 쓸 수 없는 프레임이면 null
-  function pursuitSample(frame, now, startedAt) {
+  // 프레임 하나를 기록 {gaze, time}으로 바꾼다. time은 보정 시작부터 촬영까지(ms). 쓸 수 없으면 null
+  function pursuitRecord(frame, now, startedAt) {
     if (!frame.valid || frame.closed || frame.closing || frame.eyesReady === false) return null;
     if (!Array.isArray(frame.gaze) || frame.gaze.length !== 2 || !frame.gaze.every(Number.isFinite)) return null;
     const age = frame.captureAgeMs ?? frame.inferenceMs ?? 0;
     if (!Number.isFinite(age) || age < 0 || age > 500) return null;
-    // 결과가 도착한 때가 아니라 촬영한 때의 점 위치와 짝짓는다: 그사이 점이 이미 움직였기 때문
-    const step = pursuitPoint(now - age - startedAt);
-    if (!step || !step.steady) return null;
-    return {gaze: frame.gaze, target: step.point};
+    // 결과가 도착한 때가 아니라 촬영한 때를 쓴다: 그사이 점이 이미 움직였기 때문
+    return {gaze: frame.gaze, time: now - age - startedAt};
+  }
+  // 기록마다 lag(ms) 전의 점 위치를 짝지어 회귀 표본 {gaze, target}을 만든다
+  function pairPursuit(records, lag) {
+    const samples = [];
+    for (const record of records) {
+      const step = pursuitPoint(record.time - lag);
+      if (step?.steady) samples.push({gaze: record.gaze, target: step.point});
+    }
+    return samples;
+  }
+  // 카메라 버퍼·눈의 반응 때문에 시선은 점보다 조금 늦다. 그 지연을 모르므로 회귀 오차가 가장 작은 지연을 고른다
+  function fitPursuit(records) {
+    let best = null;
+    for (let lag = 0; lag <= MAX_LAG_MS; lag += 25) {
+      const samples = pairPursuit(records, lag);
+      if (samples.length < 9) continue;
+      const error = regression(samples, 1).error;
+      if (!best || error < best.error) best = {lag, error};
+    }
+    if (!best) throw new Error('보정 자료가 부족합니다.');
+    const model = fit(pairPursuit(records, best.lag));
+    model.lag = best.lag;
+    return model;
   }
   function features(gaze, mean, scale, degree) {
     const [x, y] = gaze.map((v, k) => (v - mean[k]) / scale[k]);
@@ -242,6 +267,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, pursuitPoint, pursuitSample};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();
