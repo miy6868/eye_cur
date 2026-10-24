@@ -57,6 +57,27 @@
     const iris = Array.isArray(frame.iris) && frame.iris.length === 2 && frame.iris.every(Number.isFinite);
     return iris ? [...frame.gaze, ...frame.iris] : frame.gaze;
   }
+  // 눈 뜬 정도 보정. 눈꺼풀이 내려오면 GazeTR·홍채 값이 "아래를 본다"처럼 바뀐다.
+  // 한 점을 보며 눈을 크게/가늘게 뜬 프레임으로, 눈 열림이 1 바뀔 때 입력마다 얼마나 바뀌는지(기울기)를 구한다
+  const MIN_LID_SPREAD = .05; // 눈 열림 표준편차가 이보다 작으면 눈 뜬 정도를 바꾸지 않은 것이라 보정하지 않는다
+  function lidSlopes(frames) {
+    if (frames.length < 10) return null;
+    const mean = values => values.reduce((a, b) => a + b, 0) / values.length;
+    const lid = frames.map(f => f.openness);
+    const lidMean = mean(lid);
+    const lidVariance = mean(lid.map(v => (v - lidMean) ** 2));
+    if (Math.sqrt(lidVariance) < MIN_LID_SPREAD) return null;
+    // 입력마다 직선 기울기 = 공분산 / 분산 (보는 곳이 고정이므로 변화는 모두 눈꺼풀 때문)
+    return frames[0].gaze.map((_, k) => {
+      const inputMean = mean(frames.map(f => f.gaze[k]));
+      return mean(frames.map((f, i) => (f.gaze[k] - inputMean) * (lid[i] - lidMean))) / lidVariance;
+    });
+  }
+  // 입력에서 눈 뜬 정도 때문에 생긴 변화를 뺀다. 평소 눈 열림(1)에서의 값으로 되돌리는 것
+  function removeLid(input, openness, slopes) {
+    if (!slopes || !Number.isFinite(openness)) return input;
+    return input.map((v, k) => v - (slopes[k] || 0) * (openness - 1));
+  }
   // 프레임 하나를 기록 {gaze, time}으로 바꾼다. gaze는 회귀 입력(gazeInput). time은 보정 시작부터 촬영까지(ms). 쓸 수 없으면 null
   function pursuitRecord(frame, now, startedAt) {
     if (!frame.valid || frame.closed || frame.closing || frame.eyesReady === false) return null;
@@ -310,6 +331,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput, correctDrift};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput, correctDrift, lidSlopes, removeLid};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

@@ -8,7 +8,7 @@
   // true: 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 고친다(클릭 보정). 효과를 아직 측정하지 않아 기본은 끔
   const CLICK_DRIFT = false;
   const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput, correctDrift} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput, correctDrift, lidSlopes, removeLid} = globalThis.GazeCore;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -35,6 +35,11 @@
   const CHECK_SETTLE_MS = 600;   // 점이 나타난 뒤 눈이 옮겨 갈 때까지 버리는 시간
   const CHECK_COLLECT_MS = 1000; // 점 하나에서 모으는 시간
   const CHECK_TIMEOUT_MS = 4000; // 얼굴을 놓쳐도 이 시간이 지나면 다음 점으로 넘어간다
+  // 눈 뜬 정도 단계: 한 점을 보면서 점 아래 글자대로 눈을 뜬다. 78%보다 가늘면 '감는 중'이라 시선이 안 나오므로 "살짝"
+  const LID_POINT = [.5, .2];
+  const LID_SETTLE_MS = 600;   // 점으로 눈이 옮겨 가는 시간
+  const LID_PHASE_MS = 1300;   // 글자 하나를 보여 주는 시간
+  const LID_PHASES = ['크게', '살짝 가늘게', '크게'];
   let currentContext;
   let running = false, host, shadow, model, calibration, smooth, clicker;
   let selected = null, pending = null, requestNumber = 0, lastRequest = 0;
@@ -80,7 +85,7 @@
     // 클릭 보정을 껐으면 예전에 저장된 오프셋도 쓰지 않는다
     if (model && !CLICK_DRIFT) delete model.offset;
     else if (saved) send({type: 'calibrationInvalid'});
-    calibration = model ? null : {startedAt: null, records: [], check: null, checks: []}; // startedAt: 첫 시선 결과가 오면 점이 출발한다
+    calibration = model ? null : {startedAt: null, records: [], lid: null, lidFrames: [], check: null, checks: []}; // startedAt: 첫 시선 결과가 오면 점이 출발한다
     host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
     shadow = host.attachShadow({mode: 'closed'});
@@ -89,6 +94,7 @@
       :host{all:initial}*{box-sizing:border-box}[hidden]{display:none!important}
       #veil{position:fixed;inset:0;background:#0c1728f5;pointer-events:auto}
       #use{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);padding:12px 22px;font:600 16px system-ui;background:#21dba0;color:#071b2a}
+      #cue{position:fixed;transform:translate(-50%,26px);font:600 18px system-ui;color:#fff;white-space:nowrap}
       #dot{position:fixed;width:26px;height:26px;border:5px solid #fff;border-radius:50%;background:#32dba0;transform:translate(-50%,-50%);box-shadow:0 0 0 14px #32dba029}
       #path{position:fixed;inset:0;width:100%;height:100%}
       #guide{position:fixed;top:50%;left:50%;transform:translate(-50%,calc(-100% - 8px));font:16px/1.5 system-ui;color:#fff;text-align:center}
@@ -102,7 +108,7 @@
       #cursor{position:fixed;width:12px;height:12px;border:2px solid #fff;border-radius:50%;background:#176cff;transform:translate(-50%,-50%)}
       #target{position:fixed;border:3px solid #21dba0;border-radius:5px;background:#21dba01a;box-shadow:0 0 0 2px #071b2a99}
       </style>
-      <div id="veil"><svg id="path" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${PURSUIT_PATH.map(p => p.map(v => v * 100).join(' ')).join(' ')}" fill="none" stroke="#8a94a6" stroke-width="3" stroke-dasharray="8 6" vector-effect="non-scaling-stroke"/></svg><div id="guide">머리를 고정하고, 회색 선을 따라 움직이는 초록 점을 눈으로 따라가세요.<br>꺾이는 곳에서는 잠시 멈춥니다.</div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
+      <div id="veil"><svg id="path" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${PURSUIT_PATH.map(p => p.map(v => v * 100).join(' ')).join(' ')}" fill="none" stroke="#8a94a6" stroke-width="3" stroke-dasharray="8 6" vector-effect="non-scaling-stroke"/></svg><div id="guide">머리를 고정하고, 회색 선을 따라 움직이는 초록 점을 눈으로 따라가세요.<br>꺾이는 곳에서는 잠시 멈춥니다.</div><div id="dot"></div><div id="cue" hidden></div><button id="use" hidden>그래도 사용</button></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
       <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="drift"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
@@ -138,6 +144,7 @@
   }
   function calibrate(frame, now) {
     if (calibration.check) { check(frame, now); return; }
+    if (calibration.lid) { lidStep(frame, now); return; }
     if (calibration.startedAt === null) {
       // 카메라가 늦게 켜져도 점이 먼저 출발하지 않도록 첫 시선 결과에서 시계를 시작한다
       if (!Array.isArray(frame.gaze)) return;
@@ -156,16 +163,49 @@
       calibrationFailed(`시선 표본이 ${calibration.records.length}개뿐입니다. 얼굴이 카메라에 잘 보이는지 확인하고 다시 보정하세요.`);
       return;
     }
+    startLid(now);
+  }
+  // 눈 뜬 정도 단계를 시작한다
+  function startLid(now) {
+    calibration.lid = {shownAt: now};
+    // SVG 요소에는 .hidden 속성이 없어서 hidden 속성을 직접 붙인다 (CSS의 [hidden] 규칙으로 숨겨짐)
+    shadow.querySelector('#path').setAttribute('hidden', '');
+    shadow.querySelector('#guide').textContent = '초록 점을 계속 보면서, 점 아래 글자대로 눈을 뜨세요.';
+    placeDot(LID_POINT);
+    shadow.querySelector('#cue').hidden = false;
+  }
+  function lidStep(frame, now) {
+    const {shownAt} = calibration.lid;
+    const phase = Math.floor((now - shownAt - LID_SETTLE_MS) / LID_PHASE_MS);
+    const cue = phase < 0 ? '점을 보세요' : LID_PHASES[phase];
+    if (cue) {
+      shadow.querySelector('#cue').textContent = cue;
+      status(`눈 뜬 정도 보정 · 점을 보면서 눈을 ${cue}`);
+    }
+    const record = pursuitRecord(frame, now, shownAt);
+    if (record && record.time >= LID_SETTLE_MS && Number.isFinite(frame.openness)) {
+      calibration.lidFrames.push({gaze: record.gaze, openness: frame.openness});
+    }
+    if (now - shownAt < LID_SETTLE_MS + LID_PHASES.length * LID_PHASE_MS) return;
+    shadow.querySelector('#cue').hidden = true;
+    calibration.lid = null;
+    fitAndCheck(now);
+  }
+  // 회귀를 학습하고 검증 단계로 넘어간다
+  function fitAndCheck(now) {
+    const slopes = lidSlopes(calibration.lidFrames);
+    // 학습·검증·사용 모두 눈 뜬 정도의 영향을 뺀 입력을 쓴다: 셋이 같은 방식이어야 맞는다
+    const records = calibration.records.map(r => ({...r, gaze: removeLid(r.gaze, r.openness, slopes)}));
     try {
-      model = fitPursuit(calibration.records);
+      model = fitPursuit(records);
     } catch (error) { calibrationFailed(error.message); return; }
+    model.lid = slopes;
     const heads = calibration.records.filter(r => r.head).map(r => r.head);
     if (heads.length) {
       const [roll, distance] = average(heads);
       const [pitch] = average(heads.map(h => [h[2], h[3]]));
       model.head = {roll, distance, pitch};
     }
-    shadow.querySelector('#path').hidden = true;
     shadow.querySelector('#guide').textContent = '검증: 초록 점이 나타나면 1초씩 바라보세요.';
     showCheck(0, now);
   }
@@ -173,13 +213,20 @@
   function annotate(record, frame) {
     if (Number.isFinite(frame.headRoll)) record.head = [frame.headRoll, frame.headDistance, frame.headPitch, frame.headYaw];
     if (Array.isArray(frame.iris)) record.iris = frame.iris;
+    if (Number.isFinite(frame.openness)) record.openness = frame.openness;
+  }
+  // 초록 점(과 그 아래 글자)을 화면 비율 위치에 놓는다
+  function placeDot(point) {
+    for (const id of ['#dot', '#cue']) {
+      const element = shadow.querySelector(id);
+      element.style.left = `${point[0] * 100}vw`; element.style.top = `${point[1] * 100}vh`;
+    }
   }
   // 검증 점 하나를 보여 준다
   function showCheck(index, now) {
     calibration.check = {index, shownAt: now};
     calibration.checks[index] = {target: CHECK_POINTS[index], frames: []};
-    const dot = shadow.querySelector('#dot');
-    dot.style.left = `${CHECK_POINTS[index][0] * 100}vw`; dot.style.top = `${CHECK_POINTS[index][1] * 100}vh`;
+    placeDot(CHECK_POINTS[index]);
   }
   function check(frame, now) {
     const {index, shownAt} = calibration.check;
@@ -197,13 +244,18 @@
   }
   // 검증 점 오차를 계산하고 기록을 서버에 보낸 뒤, 쓸지 말지 정한다
   function judge() {
-    const pixels = checkErrors(model, calibration.checks)
+    const checks = calibration.checks.map(c => ({
+      target: c.target,
+      frames: c.frames.map(f => ({gaze: removeLid(f.gaze, f.openness, model.lid)})),
+    }));
+    const pixels = checkErrors(model, checks)
       .filter(Boolean)
       .map(([dx, dy]) => Math.round(Math.hypot(dx * innerWidth, dy * innerHeight)));
     const checkPx = pixels.length ? Math.round(pixels.reduce((a, b) => a + b, 0) / pixels.length) : null;
     // 나중에 회귀·입력을 바꿨을 때 같은 자료로 비교할 수 있도록 원래 값을 모두 남긴다
     send({type: 'calibrationLog', screen: [innerWidth, innerHeight], lag: model.lag, degree: model.degree,
-      crossError: model.crossError, checkPixels: pixels, records: calibration.records, checks: calibration.checks});
+      crossError: model.crossError, checkPixels: pixels, records: calibration.records, checks: calibration.checks,
+      lidSlopes: model.lid, lidFrames: calibration.lidFrames});
     // 교차 검증 오차: 표본 하나를 빼고 회귀한 뒤 뺀 표본을 맞혀 본 오차
     const rms = model.crossError;
     if (!Number.isFinite(rms)) { calibrationFailed('시선 좌표 계산에 실패했습니다. 다시 보정해 주세요.'); return; }
@@ -229,7 +281,8 @@
     send({type: 'calibrated', model, layout});
     const checked = checkPx === null ? '검증 점 표본 없음' : `검증 점 오차 약 ${checkPx}px`;
     // 상태 줄은 다음 프레임에 바로 바뀌므로 보정 결과는 따로 계속 보여 준다
-    shadow.querySelector('#quality').textContent = `보정 결과: ${checked} · 시선 지연 ${model.lag}ms`;
+    const lid = model.lid ? '눈 뜬 정도 보정 적용' : '눈 뜬 정도 보정 건너뜀(눈 열림 변화 부족)';
+    shadow.querySelector('#quality').textContent = `보정 결과: ${checked} · 시선 지연 ${model.lag}ms · ${lid}`;
     status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · ${checked} · 교차 검증 ${pixelRms}px · 시선 지연 ${model.lag}ms · ${CLICK_HINT}.`);
   }
   function calibrationFailed(message) {
@@ -332,7 +385,7 @@
     else if (clicker.result === 'long') status('2초를 넘겨 클릭을 취소했습니다.');
     if (!message.gaze) return;
     // 예전에 2개 입력으로 저장한 보정은 features가 앞의 2개만 쓰므로 그대로 동작한다
-    const point = predict(model, gazeInput(message));
+    const point = predict(model, removeLid(gazeInput(message), message.openness, model.lid));
     if (point.some(v => !Number.isFinite(v))) {
       pending = null; requestNumber++; history = []; resetFilter();
       hideCursor(); return;
