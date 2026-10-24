@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, checkErrors, gazeInput} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, checkErrors, gazeInput, correctDrift} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -140,6 +140,18 @@ test('4-input regression uses iris to fix what GazeTR alone cannot', () => {
   assert.ok(twoInputs.crossError > .02);
   // 예전 2개 입력 보정에 4개 입력을 넣어도 앞의 2개만 쓴다
   assert.deepEqual(predict(twoInputs, [.1, .2, 9, 9]), predict(twoInputs, [.1, .2]));
+});
+
+test('a click moves the offset halfway toward the clicked element center', () => {
+  // 요소 가운데 (500, 300), 예측 (460, 360): 가로 +40px, 세로 -60px 차이의 절반만큼
+  const offset = correctDrift(undefined, [460, 360], [450, 280, 100, 40], [1000, 600]);
+  assert.ok(Math.abs(offset[0] - .02) < 1e-9 && Math.abs(offset[1] + .05) < 1e-9);
+  // 이어서 다시 고치면 기존 오프셋에 더해진다
+  assert.ok(Math.abs(correctDrift(offset, [460, 360], [450, 280, 100, 40], [1000, 600])[0] - .04) < 1e-9);
+  // 가로로 긴 링크(300px)는 어디를 봤는지 몰라 가로는 그대로, 세로만 고친다
+  const wide = correctDrift([0, 0], [460, 360], [350, 280, 300, 40], [1000, 600]);
+  assert.equal(wide[0], 0);
+  assert.ok(Math.abs(wide[1] + .05) < 1e-9);
 });
 
 test('16-point calibration selects nonlinearity only when held-out points improve', () => {
