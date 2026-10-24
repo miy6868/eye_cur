@@ -10,3 +10,4 @@ models/*
 !models/GazeTR-H-ETH.pt
 runtime.json
 *.log
+logs/

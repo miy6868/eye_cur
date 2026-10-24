@@ -83,6 +83,20 @@
     model.lag = best.lag;
     return model;
   }
+  function median(values) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+  // 검증 점마다 예측 위치(중앙값)가 목표에서 얼마나 빗나갔는지 [dx, dy] (화면 비율). 표본이 없으면 null
+  function checkErrors(model, checks) {
+    return checks.map(({target, frames}) => {
+      if (!frames.length) return null;
+      const predictions = frames.map(frame => predict(model, frame.gaze));
+      // 평균 대신 중앙값: 잠깐 딴 데를 본 프레임에 덜 흔들린다
+      return [0, 1].map(k => median(predictions.map(p => p[k])) - target[k]);
+    });
+  }
   function features(gaze, mean, scale, degree) {
     const [x, y] = gaze.map((v, k) => (v - mean[k]) / scale[k]);
     return degree === 2 ? [1, x, y, x * x, x * y, y * y] : [1, x, y];
@@ -267,6 +281,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

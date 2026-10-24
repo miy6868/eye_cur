@@ -181,6 +181,9 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     requests.set(id, {tabId: activeTab, context, requestId: message.requestId});
     connection.send(JSON.stringify({...message, requestId: id})); reply({ok: true}); return;
   }
+  if (message.type === 'calibrationLog' && connection?.readyState === WebSocket.OPEN) {
+    connection.send(JSON.stringify(message)); return;
+  }
   if (message.type === 'uiStatus') status = message.message;
 });
 chrome.tabs.onActivated.addListener(info => {
