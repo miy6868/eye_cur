@@ -295,9 +295,21 @@
       return this.selected;
     }
   }
+  // 클릭으로 드리프트 고치기: 클릭한 요소를 보고 있었다고 보고, 예측 위치와 요소 가운데의 차이만큼 오프셋을 옮긴다
+  const DRIFT_GAIN = .5;         // 차이의 절반만 옮긴다: 한 번 잘못 본 클릭에 크게 흔들리지 않게
+  const DRIFT_MAX_SIZE_PX = 200; // 요소가 이 방향으로 이보다 길면 어디를 봤는지 알 수 없어 그 방향은 고치지 않는다
+  // offset: 화면 비율 단위 [x, y], gaze·rect: 화면 픽셀, screen: [가로, 세로] 픽셀
+  function correctDrift(offset, gaze, rect, screen) {
+    const center = [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2];
+    return [0, 1].map(k => {
+      const current = offset?.[k] || 0;
+      if (rect[2 + k] > DRIFT_MAX_SIZE_PX) return current;
+      return current + DRIFT_GAIN * (center[k] - gaze[k]) / screen[k];
+    });
+  }
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput, correctDrift};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

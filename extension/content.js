@@ -6,7 +6,7 @@
   // 클릭 방식: 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 기존 양눈 감기 클릭
   const CLICK_MODE = 'mouth';
   const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput, correctDrift} = globalThis.GazeCore;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -23,6 +23,7 @@
   let filterIndex = 5; // 응시 고정으로 시작
   let filter = filterChoices[filterIndex].create();
   let trail = []; // 최근 3초의 {raw, filtered, time}: 떨림 계산과 그래프용
+  let lockGaze = null; // 클릭 대상이 고정되는 순간의 예측 위치(px): 클릭이 끝나면 드리프트 보정에 쓴다
   const GRAPH_MS = 3000;
   const JITTER_MS = 1500;
   // 고정 점 대신 움직이는 점을 따라 보게 해 표본이 화면 전체에 고르게 퍼지게 한다
@@ -46,7 +47,7 @@
     send({type: 'uiStatus', message: text});
   }
   function invalidate() {
-    selected = null; pending = null; history = []; resetFilter();
+    selected = null; pending = null; history = []; resetFilter(); lockGaze = null;
     requestNumber++; clicker?.reset();
     nearest.reset(); // 스크롤·탭 이동 뒤에는 머무름을 처음부터 다시 잰다
     if (shadow) shadow.querySelector('#target').hidden = true;
@@ -99,7 +100,7 @@
       </style>
       <div id="veil"><svg id="path" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${PURSUIT_PATH.map(p => p.map(v => v * 100).join(' ')).join(' ')}" fill="none" stroke="#8a94a6" stroke-width="3" stroke-dasharray="8 6" vector-effect="non-scaling-stroke"/></svg><div id="guide">머리를 고정하고, 회색 선을 따라 움직이는 초록 점을 눈으로 따라가세요.<br>꺾이는 곳에서는 잠시 멈춥니다.</div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
-      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
+      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="drift"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
     shadow.querySelector('#stop').onclick = () => stop('중지됨');
     shadow.querySelector('#recalibrate').onclick = () => send({type: 'recalibrate'});
@@ -107,7 +108,7 @@
     showFilterName();
     shadow.querySelector('#panel').classList.toggle('calibrating', !!calibration);
     if (calibration) { moveDot(calibration); status('움직이는 점 보정 · 카메라 연결 대기 중…'); }
-    else { shadow.querySelector('#veil').hidden = true; status('저장된 보정으로 계속합니다 · 어긋나면 다시 보정을 누르세요.'); }
+    else { shadow.querySelector('#veil').hidden = true; status('저장된 보정으로 계속합니다 · 어긋나면 다시 보정을 누르세요.'); showDrift(); }
     timer = setInterval(() => {
       if (!running) return;
       if (geometry() !== layout) { send({type: 'calibrationInvalid'}); start({context: currentContext}); return; }
@@ -248,6 +249,13 @@
     }
     shadow.querySelector('#head').textContent = text;
   }
+  // 클릭으로 고친 오프셋을 픽셀로 보여 준다
+  function showDrift() {
+    const drift = shadow.querySelector('#drift');
+    if (!model?.offset) { drift.textContent = ''; return; }
+    const [x, y] = model.offset.map((v, k) => Math.round(v * [innerWidth, innerHeight][k]));
+    drift.textContent = `클릭 보정 (${x >= 0 ? '+' : ''}${x}, ${y >= 0 ? '+' : ''}${y})px`;
+  }
   function candidates(x, y) {
     const radius = Math.max(100, Math.min(240, (model.error + .06) * Math.min(innerWidth, innerHeight) * 2));
     return GazeDOM.collect(x, y, radius, element => {
@@ -267,9 +275,16 @@
       invalidate(); status('대상이 바뀌어 클릭을 취소했습니다.'); return;
     }
     const element = item.element;
+    const gaze = lockGaze;
     invalidate();
     element.focus({preventScroll: true}); element.click();
     status('클릭 완료');
+    if (gaze) {
+      // 방금 클릭한 요소를 보고 있었으므로, 그만큼 예측이 어긋났다고 보고 오프셋을 고친다
+      model.offset = correctDrift(model.offset, gaze, item.rect, [innerWidth, innerHeight]);
+      send({type: 'calibrated', model, layout}); // 다른 탭·다음 실행에서도 고친 값을 쓴다
+      showDrift();
+    }
   }
   function frame(message) {
     if (!running) return;
@@ -289,7 +304,13 @@
     if (calibration) { calibrate(message, now); return; }
     if (!model) return;
     if (selected && !GazeDOM.unchanged(selected)) invalidate();
+    const wasActive = clicker.active;
     const clicked = clicker.update(message, selected);
+    if (clicker.active && !wasActive) {
+      // 입을 벌리기 시작한 순간(대상 고정) 직전 0.5초의 예측 위치 평균. 입을 벌리는 동안엔 시선이 흔들릴 수 있다
+      const recent = trail.filter(p => now - p.time < 500).map(p => p.raw);
+      lockGaze = recent.length ? average(recent) : null;
+    }
     if (clicker.active) {
       showTarget(selected);
       if (CLICK_MODE === 'mouth') mouthStatus(message.time);
