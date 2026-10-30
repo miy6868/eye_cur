@@ -32,6 +32,11 @@ function retrySocket() {
   }, delay);
 }
 
+// 저장된 보정이 없이 페이지에 붙어 있으면 그 페이지는 보정 중이다
+function calibrating() {
+  return activeTab !== null && savedCalibration === null;
+}
+
 async function detach(reason = '다른 탭에서 계속합니다.') {
   const previous = activeTab, previousContext = context;
   activeTab = null; context = null; requests.clear();
@@ -89,7 +94,10 @@ async function attach(tabId) {
     const window = await chrome.windows.get(tab.windowId);
     if (!enabled || expected !== generation) return;
     if (!tab.active && window.focused) { await followFocusedTab(); return; }
-    if (!window.focused || !/^https?:\/\//.test(tab.url || '')) {
+    // 보정할 때(저장된 보정 없음)는 창 초점을 따지지 않는다: Linux에서는 팝업이 열려 있기만 해도
+    // 초점이 없다고 나와서 시작·다시 보정이 '대기 중'에 머물렀다
+    const needsFocus = savedCalibration !== null;
+    if ((needsFocus && !window.focused) || !/^https?:\/\//.test(tab.url || '')) {
       status = '대기 중 · 일반 웹페이지로 돌아오면 자동으로 계속합니다.'; return;
     }
     await chrome.scripting.executeScript({target: {tabId}, files: ['core.js', 'dom.js', 'content.js']});
@@ -250,6 +258,10 @@ chrome.tabs.onUpdated.addListener((id, change) => {
 });
 chrome.windows.onFocusChanged.addListener(id => {
   if (!enabled) return;
-  if (id === chrome.windows.WINDOW_ID_NONE) { status = '다른 앱 사용 중 · Chrome으로 돌아오면 계속합니다.'; detach(); }
+  if (id === chrome.windows.WINDOW_ID_NONE) {
+    // 보정 중이면 초점이 빠져도(팝업·다른 앱) 떼어 내지 않고 보정을 끝까지 한다
+    if (calibrating()) return;
+    status = '다른 앱 사용 중 · Chrome으로 돌아오면 계속합니다.'; detach();
+  }
   else followFocusedTab();
 });
