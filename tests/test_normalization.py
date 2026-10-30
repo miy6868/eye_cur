@@ -5,7 +5,9 @@ from pathlib import Path
 os.environ.setdefault('MPLCONFIGDIR', str(Path(__file__).resolve().parents[1] / '.cache/matplotlib'))
 import cv2
 import numpy as np
-from backend.tracker import FACE_3D, FACE_IDS, face_tensor, face_warp, iris_offset
+from unittest.mock import patch
+
+from backend.tracker import FACE_3D, FACE_IDS, face_tensor, face_warp, iris_offset, thread_count
 
 
 class NormalizationTests(unittest.TestCase):
@@ -77,3 +79,15 @@ class UniGazeInputTests(unittest.TestCase):
         self.assertAlmostEqual(float(tensor[0, 2, 0, 0]), (1 - .406) / .225, places=5)
         # 빨강 채널은 0이었으므로 (0 - 0.485) / 0.229
         self.assertAlmostEqual(float(tensor[0, 0, 0, 0]), -.485 / .229, places=5)
+
+    def test_thread_count_is_half_the_logical_cores_unless_set(self):
+        with patch.dict(os.environ, {'CPU_THREADS': ''}):
+            with patch('os.cpu_count', return_value=16):
+                self.assertEqual(thread_count(), 8)
+            with patch('os.cpu_count', return_value=8):
+                self.assertEqual(thread_count(), 4)
+            # 너무 많이 나누면 서로 CPU를 다퉈서 최대 8개
+            with patch('os.cpu_count', return_value=32):
+                self.assertEqual(thread_count(), 8)
+        with patch.dict(os.environ, {'CPU_THREADS': '3'}):
+            self.assertEqual(thread_count(), 3)
