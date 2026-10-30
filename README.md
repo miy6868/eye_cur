@@ -1,6 +1,6 @@
 # Gaze + Jev — CPU 최소 구현
 
-웹캠 → **GazeTR-Hybrid** → 9점 왕복 보정 → 주변 DOM 요소 → 가장 가까운 요소 선택(NearestSelector, Jev는 선택) → 긴 눈 감기로 클릭.
+웹캠 → **GazeTR-Hybrid** → 9점 왕복 보정 → 주변 DOM 요소 → 가장 가까운 요소 선택(NearestSelector, Jev는 선택) → 입 벌렸다 다물기로 클릭.
 
 Windows 또는 Linux + Chrome, 단일 모니터에서 사용하는 개인·연구용 시제품입니다. **GazeTR-Pure는 사용하지 않습니다.** CNN+Transformer인 공식 GazeTR-Hybrid 코드와 `GazeTR-H-ETH.pt`를 **CPU 전용**으로 실행하며 CUDA를 설치하거나 사용하지 않습니다.
 
