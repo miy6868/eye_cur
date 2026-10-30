@@ -7,14 +7,12 @@
   const MOUTH_MIN_MS = 500;       // 이보다 짧게 벌리면 말하는 중으로 보고 무시
   const MOUTH_MAX_MS = 2000;      // 이보다 오래 벌리면 클릭 취소
   const MOUTH_COOLDOWN_MS = 800;  // 클릭 직후 연속 클릭 방지
-  // 움직이는 점 보정 설정
-  const PURSUIT_SPEED = .3;       // 점이 1초에 화면의 30%만큼 움직인다: 눈이 놓치지 않고 따라갈 수 있는 속도
-  const PURSUIT_STOP_MS = 800;    // 꺾이는 곳(가장자리)마다 멈춘다: 가장자리·모서리 표본을 확실히 얻는다
-  const PURSUIT_SETTLE_MS = 400;  // 멈추거나 출발한 직후에는 눈이 아직 점을 못 따라가므로 표본을 버린다
-  const MAX_LAG_MS = 300;         // 시선이 점보다 늦는 시간을 0~300ms 사이에서 찾는다
-  // ㄹ자로 4줄을 훑는다: 고정 점 사이의 중간 위치에서도 표본을 얻는다
-  const PURSUIT_PATH = [.05, .35, .65, .95].flatMap((y, row) =>
-    row % 2 ? [[.95, y], [.05, y]] : [[.05, y], [.95, y]]);
+  // 9점 응시 보정 설정
+  // 3×3 점을 ㄹ자 순서로 본다. 가장자리 10%: 버튼이 놓이는 곳을 모두 덮으면서 화면 끝에 너무 붙지 않게
+  const CALIBRATION_POINTS = [[.1, .1], [.5, .1], [.9, .1], [.9, .5], [.5, .5], [.1, .5], [.1, .9], [.5, .9], [.9, .9]];
+  // 앞으로 한 바퀴 + 거꾸로 한 바퀴. 점마다 두 번 본 시각의 평균이 같아져서,
+  // 시간이 지나며 천천히 밀리는 시선 값(드리프트)이 모든 점에 똑같이 더해진다 → 점 사이 관계가 틀어지지 않는다
+  const CALIBRATION_ORDER = [0, 1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1, 0];
   function solve(matrix, vector) {
     const a = matrix.map((row, i) => [...row, vector[i]]);
     for (let i = 0; i < a.length; i++) {
@@ -32,79 +30,31 @@
     }
     return a.map(row => row[a.length]);
   }
-  // 보정을 시작한 지 elapsed(ms) 뒤의 점 위치. 경로가 끝났으면 null
-  function pursuitPoint(elapsed) {
-    let time = elapsed;
-    for (let i = 0; i < PURSUIT_PATH.length; i++) {
-      const a = PURSUIT_PATH[i], b = PURSUIT_PATH[i + 1];
-      // 꼭짓점에서 멈춰 있는 구간
-      if (time < PURSUIT_STOP_MS) return {point: a, steady: time >= PURSUIT_SETTLE_MS};
-      time -= PURSUIT_STOP_MS;
-      if (!b) return null;
-      // 다음 꼭짓점으로 일정한 속도로 움직이는 구간
-      const duration = Math.hypot(b[0] - a[0], b[1] - a[1]) / PURSUIT_SPEED * 1000;
-      if (time < duration) {
-        const point = [0, 1].map(k => a[k] + (b[k] - a[k]) * time / duration);
-        return {point, steady: time >= PURSUIT_SETTLE_MS};
-      }
-      time -= duration;
-    }
-    return null;
-  }
-  // 회귀 입력: GazeTR 시선 각도 2개 + 홍채 위치 2개.
-  // 기록 분석에서 GazeTR 값은 시간이 지나면 세로로 흔들렸고, 홍채 위치를 더하면 검증 오차가 약 1/3 줄었다
-  function gazeInput(frame) {
-    const iris = Array.isArray(frame.iris) && frame.iris.length === 2 && frame.iris.every(Number.isFinite);
-    return iris ? [...frame.gaze, ...frame.iris] : frame.gaze;
-  }
-  // 프레임 하나를 기록 {gaze, time}으로 바꾼다. gaze는 회귀 입력(gazeInput). time은 보정 시작부터 촬영까지(ms). 쓸 수 없으면 null
-  function pursuitRecord(frame, now, startedAt) {
+  // 프레임 하나를 기록 {gaze, time}으로 바꾼다. gaze는 GazeTR 시선 각도 2개, time은 점이 나타난 뒤 촬영까지(ms). 쓸 수 없으면 null
+  function gazeRecord(frame, now, shownAt) {
     if (!frame.valid || frame.closed || frame.closing || frame.eyesReady === false) return null;
     if (!Array.isArray(frame.gaze) || frame.gaze.length !== 2 || !frame.gaze.every(Number.isFinite)) return null;
     const age = frame.captureAgeMs ?? frame.inferenceMs ?? 0;
     if (!Number.isFinite(age) || age < 0 || age > 500) return null;
-    // 결과가 도착한 때가 아니라 촬영한 때를 쓴다: 그사이 점이 이미 움직였기 때문
-    return {gaze: gazeInput(frame), time: now - age - startedAt};
-  }
-  // 기록마다 lag(ms) 전의 점 위치를 짝지어 회귀 표본 {gaze, target}을 만든다
-  function pairPursuit(records, lag) {
-    const samples = [];
-    for (const record of records) {
-      const step = pursuitPoint(record.time - lag);
-      if (step?.steady) samples.push({gaze: record.gaze, target: step.point});
-    }
-    return samples;
-  }
-  // 카메라 버퍼·눈의 반응 때문에 시선은 점보다 조금 늦다. 그 지연을 모르므로 회귀 오차가 가장 작은 지연을 고른다
-  function fitPursuit(records) {
-    // 홍채 값이 빠진 프레임이 섞이면 입력 개수가 달라지므로, 가장 긴 입력을 가진 기록만 쓴다
-    const size = Math.max(...records.map(r => r.gaze.length));
-    records = records.filter(r => r.gaze.length === size);
-    let best = null;
-    for (let lag = 0; lag <= MAX_LAG_MS; lag += 25) {
-      const samples = pairPursuit(records, lag);
-      if (samples.length < 9) continue;
-      const error = regression(samples, 1).error;
-      if (!best || error < best.error) best = {lag, error};
-    }
-    if (!best) throw new Error('보정 자료가 부족합니다.');
-    const model = fit(pairPursuit(records, best.lag));
-    model.lag = best.lag;
-    return model;
+    // 결과가 도착한 때가 아니라 촬영한 때를 쓴다: 그사이 점이 이미 옮겨 갔을 수 있다
+    return {gaze: frame.gaze, time: now - age - shownAt};
   }
   function median(values) {
     const sorted = [...values].sort((a, b) => a - b);
     const middle = Math.floor(sorted.length / 2);
     return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
   }
-  // 검증 점마다 예측 위치(중앙값)가 목표에서 얼마나 빗나갔는지 [dx, dy] (화면 비율). 표본이 없으면 null
-  function checkErrors(model, checks) {
-    return checks.map(({target, frames}) => {
-      if (!frames.length) return null;
-      const predictions = frames.map(frame => predict(model, frame.gaze));
-      // 평균 대신 중앙값: 잠깐 딴 데를 본 프레임에 덜 흔들린다
-      return [0, 1].map(k => median(predictions.map(p => p[k])) - target[k]);
-    });
+  // 점 하나에서 모은 기록들 → 입력별 중앙값. 평균 대신 중앙값: 잠깐 딴 데를 본 프레임에 덜 흔들린다
+  function medianGaze(records) {
+    return records[0].gaze.map((_, k) => median(records.map(r => r.gaze[k])));
+  }
+  // points: [{target, medians: 바퀴마다 medianGaze}] → 보정 모델
+  // 점 9개에 입력 4개(홍채 포함)를 쓰면 잡음까지 외웠다: 예전 기록 4개 모두 GazeTR 2개 입력이 더 정확했다
+  function fitPoints(points) {
+    // 두 바퀴 값을 평균한다. 한 바퀴에서만 표본을 얻은 점은 그 값만 쓴다
+    const samples = points.filter(p => p.medians.length).map(p => ({target: p.target, gaze: average(p.medians)}));
+    // 표본이 점 9개뿐이라 fit은 1차 회귀를 쓰고, 점 하나씩 빼고 맞혀 보는 교차 검증 오차를 붙인다
+    return fit(samples);
   }
   // 입력마다 평균 0, 표준편차 1로 맞춘 뒤 회귀 항을 만든다. 1차: 1, 각 입력. 2차: 거기에 두 입력의 곱을 모두 더한다
   function features(input, mean, scale, degree) {
@@ -141,10 +91,10 @@
     if (samples.length < 9) throw new Error('보정 자료가 부족합니다.');
     const linear = regression(samples, 1);
     linear.crossError = crossError(samples, 1, 0);
+    // 표본이 적으면 2차 항(계수 6개)이 잡음까지 외우므로 1차만 쓴다. 9점 보정은 항상 여기서 끝난다
     if (samples.length < 16) return linear;
     const options = [.01, .1, 1].map(penalty => ({penalty, error: crossError(samples, 2, penalty)})).sort((a, b) => a.error - b.error);
-    // 교차 검증에서 2차가 5% 이상 나을 때만 2차를 쓴다.
-    // 움직이는 점 보정은 표본이 수백 개라 2차도 과적합이 적고, 실제 기록에서 검증 점 오차가 모두 줄었다
+    // 교차 검증에서 2차가 5% 이상 나을 때만 2차를 쓴다
     if (options[0].error < linear.crossError * .95) {
       const quadratic = regression(samples, 2, options[0].penalty);
       quadratic.crossError = options[0].error;
@@ -336,6 +286,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput, correctDrift, eyeRange, eyeSize, windowBounds};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, windowBounds};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

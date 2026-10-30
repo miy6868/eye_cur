@@ -54,7 +54,7 @@ class SocketTests(unittest.TestCase):
 
     def test_health_and_demo(self):
         self.assertEqual(self.client.get('/health').json()['device'], 'cpu')
-        self.assertIn('시선', self.client.get('/demo').text)
+        self.assertIn('클릭 0회', self.client.get('/demo').text)
 
     def test_bad_origin_and_token(self):
         with self.assertRaises(WebSocketDisconnect):
