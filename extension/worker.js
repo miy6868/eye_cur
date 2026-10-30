@@ -89,7 +89,9 @@ async function attach(tabId) {
     const window = await chrome.windows.get(tab.windowId);
     if (!enabled || expected !== generation) return;
     if (!tab.active && window.focused) { await followFocusedTab(); return; }
-    if (!window.focused || !/^https?:\/\//.test(tab.url || '')) {
+    // 창 초점은 따지지 않는다: Linux(Wayland)에서는 확장 팝업만 열려 있어도 창이 초점을 잃은 것으로 나와서
+    // 팝업의 시작·다시 보정이 '대기 중'에서 멈췄다. 페이지에 초점이 없으면 content.js가 스스로 입력을 멈춘다
+    if (!/^https?:\/\//.test(tab.url || '')) {
       status = '대기 중 · 일반 웹페이지로 돌아오면 자동으로 계속합니다.'; return;
     }
     await chrome.scripting.executeScript({target: {tabId}, files: ['core.js', 'dom.js', 'content.js']});
@@ -244,7 +246,9 @@ chrome.tabs.onUpdated.addListener((id, change) => {
   }
 });
 chrome.windows.onFocusChanged.addListener(id => {
-  if (!enabled) return;
-  if (id === chrome.windows.WINDOW_ID_NONE) { status = '다른 앱 사용 중 · Chrome으로 돌아오면 계속합니다.'; detach(); }
-  else followFocusedTab();
+  // 다른 앱으로 가도(NONE) 페이지를 떼어 내지 않는다. 팝업을 열기만 해도 NONE이 오고,
+  // 돌아올 때 이벤트가 빠지기도 해서 떼어 내면 다시 붙지 않았다. 멈추는 일은 content.js가 초점을 보고 한다
+  if (!enabled || id === chrome.windows.WINDOW_ID_NONE) return;
+  // 다른 Chrome 창으로 옮겨 가면 그 창의 탭에 붙는다
+  followFocusedTab();
 });
