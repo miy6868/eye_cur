@@ -214,3 +214,18 @@ test('screen stays awake while running and is released on stop', async () => {
   await h.message({type: 'stop'});
   assert.equal(h.keepAwake(), null);
 });
+
+test('popup recalibrates the running tab and shows the last calibration error', async () => {
+  const h = harness(); await h.message({type: 'start', tabId: 1, token: 'test'}); h.sockets[0].open();
+  await h.message({type: 'calibrated', context: h.current().context, model: {degree: 1, pixelError: 85}, layout: 'fixed'}, {tab: {id: 1}});
+  assert.equal((await h.message({type: 'getStatus'})).calibrationError, 85);
+  // 팝업에서 온 메시지에는 sender.tab이 없다
+  assert.equal((await h.message({type: 'recalibrate'})).ok, true);
+  assert.equal(h.current().calibration, null);
+  assert.equal((await h.message({type: 'getStatus'})).calibrationError, null);
+});
+
+test('popup recalibrate while stopped explains what to do', async () => {
+  const h = harness();
+  assert.match((await h.message({type: 'recalibrate'})).error, /웹페이지 탭/);
+});

@@ -1,9 +1,25 @@
 const token = document.querySelector('#token');
 const status = document.querySelector('#status');
-chrome.storage.local.get('pairingToken').then(data => { token.value = data.pairingToken || ''; });
-chrome.runtime.sendMessage({type: 'getStatus'}).then(data => {
-  if (data?.status) status.textContent = data.status;
+const quality = document.querySelector('#quality');
+const info = document.querySelector('#info');
+chrome.storage.local.get(['pairingToken', 'showInfo']).then(data => {
+  token.value = data.pairingToken || '';
+  info.checked = !!data.showInfo;
 });
+
+// 워커가 알려 준 상태를 화면에 반영한다. 실행 중인지에 따라 보이는 버튼이 바뀐다(CSS의 .running)
+function render(data) {
+  document.body.classList.toggle('running', !!data?.enabled);
+  if (data?.status) status.textContent = data.status;
+  quality.textContent = Number.isFinite(data?.calibrationError) ? `마지막 보정 · 점 오차 약 ${data.calibrationError}px` : '';
+}
+async function refresh() {
+  render(await chrome.runtime.sendMessage({type: 'getStatus'}).catch(() => null));
+}
+refresh();
+// 보정 중에는 상태가 계속 바뀌므로 팝업이 열려 있는 동안 0.5초마다 다시 읽는다
+setInterval(refresh, 500);
+
 document.querySelector('#start').onclick = async () => {
   try {
     if (!token.value.trim()) throw new Error('서버의 연결 토큰을 입력하세요.');
@@ -21,5 +37,13 @@ document.querySelector('#start').onclick = async () => {
 };
 document.querySelector('#stop').onclick = async () => {
   await chrome.runtime.sendMessage({type: 'stop'});
-  status.textContent = '중지됨';
+  refresh();
 };
+document.querySelector('#recalibrate').onclick = async () => {
+  const reply = await chrome.runtime.sendMessage({type: 'recalibrate'});
+  if (reply?.error) { status.textContent = reply.error; return; }
+  // 팝업이 떠 있으면 페이지에 초점이 없어 보정이 멈추므로 닫는다
+  window.close();
+};
+// 스위치를 바꾸면 저장소에 쓰고, 열려 있는 페이지가 storage 변경을 듣고 바로 반영한다
+info.onchange = () => chrome.storage.local.set({showInfo: info.checked});
