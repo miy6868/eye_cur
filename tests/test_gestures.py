@@ -44,10 +44,10 @@ class EyeStateTests(unittest.TestCase):
 class MouthStateTests(unittest.TestCase):
     def test_values_between_thresholds_keep_the_previous_state(self):
         mouth = MouthState()
-        self.assertFalse(mouth.update(.25)['mouthOpen'])  # 다문 상태에서 0.25 → 그대로 다뭄
-        self.assertTrue(mouth.update(.35)['mouthOpen'])   # 0.30 초과 → 벌림
-        self.assertTrue(mouth.update(.25)['mouthOpen'])   # 벌린 상태에서 0.25 → 그대로 벌림
-        self.assertFalse(mouth.update(.15)['mouthOpen'])  # 0.20 미만 → 다뭄
+        self.assertFalse(mouth.update(.16)['mouthOpen'])  # 다문 상태에서 0.16 → 그대로 다뭄
+        self.assertTrue(mouth.update(.22)['mouthOpen'])   # 0.20 초과 → 벌림
+        self.assertTrue(mouth.update(.16)['mouthOpen'])   # 벌린 상태에서 0.16 → 그대로 벌림
+        self.assertFalse(mouth.update(.10)['mouthOpen'])  # 0.12 미만 → 다뭄
 
     def test_ratio_uses_inner_lips_over_mouth_corners(self):
         points = [(0, 0)] * 468

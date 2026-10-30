@@ -307,7 +307,7 @@
     const now = performance.now(); lastFrame = now;
     shadow.querySelector('#eyes').textContent = !message.valid ? '눈 추적 끊김' : message.eyesReady === false ? '눈 뜬 상태 학습 중' : message.closed ? '양눈 감음' : message.closing ? '눈 감는 중' : '눈 뜸';
     if (Number.isFinite(message.openness)) shadow.querySelector('#eyes').textContent += ` · 눈 열림 ${Math.round(message.openness * 100)}%`;
-    // 문턱값(벌림 > 0.30, 다뭄 < 0.20)을 맞출 수 있게 MAR 값을 그대로 보여 준다
+    // 문턱값(벌림 > 0.20, 다뭄 < 0.12)을 맞출 수 있게 MAR 값을 그대로 보여 준다
     const mar = Number.isFinite(message.mar) ? message.mar.toFixed(2) : '-';
     shadow.querySelector('#mouth').textContent = `입 ${message.mouthOpen ? '벌림' : '다뭄'} · MAR ${mar}`;
     if (Number.isFinite(message.headRoll)) showHead(message);
