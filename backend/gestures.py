@@ -7,6 +7,12 @@ import math
 # 확장의 MouthClick이 0.5초보다 짧은 벌림을 무시해서 걸러진다
 MOUTH_OPEN_MAR = 0.20    # 이보다 커지면 '벌림'
 MOUTH_CLOSED_MAR = 0.12  # 이보다 작아지면 '다뭄'
+# 눈 열림 문턱값: 평소 뜬 눈(기준) 대비 비율이고, 두 눈이 모두 넘어야 한다(한쪽 윙크는 무시)
+# 처음엔 감는 중 0.78 / 감음 0.70 / 다시 뜸 0.80이었다. 보정 기록을 보니 아래쪽을 볼 때 눈꺼풀이 내려와
+# 평소에도 0.66~0.8까지 내려가서, 눈을 뜨고 있는데 '감는 중'으로 시선이 자주 멈췄다. 그래서 크게 낮췄다
+EYE_CLOSING = 0.60  # 이보다 작으면 '감는 중': 이 동안은 시선 값을 쓰지 않는다
+EYE_CLOSED = 0.50   # 이보다 작으면 '감음'(눈 감기 클릭 모드용)
+EYE_REOPEN = 0.62   # 감은 뒤 이보다 커지면 다시 뜬 것. 아래쪽을 보는 눈(약 0.7)도 뜬 것으로 본다
 # MediaPipe FaceMesh 번호: 13 = 윗입술 안쪽 가운데, 14 = 아랫입술 안쪽 가운데, 61·291 = 양쪽 입꼬리
 LIP_TOP, LIP_BOTTOM, MOUTH_LEFT, MOUTH_RIGHT = 13, 14, 61, 291
 
@@ -28,10 +34,10 @@ class EyeState:
         relative = [ratio / reference for ratio, reference in zip(ratios, baseline)]
         if ready:
             if self.closed:
-                if all(r > .80 for r in relative): self.closed = False
-            elif all(r < .70 for r in relative):
+                if all(r > EYE_REOPEN for r in relative): self.closed = False
+            elif all(r < EYE_CLOSED for r in relative):
                 self.closed = True
-        closing = ready and (self.closed or all(r < .78 for r in relative))
+        closing = ready and (self.closed or all(r < EYE_CLOSING for r in relative))
         # Never learn a closed eye as the new open baseline.
         if ready and not closing and all(.84 <= r <= 1.6 for r in relative):
             for samples, ratio in zip(self.samples, ratios): samples.append(ratio)

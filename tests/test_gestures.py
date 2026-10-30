@@ -10,11 +10,19 @@ class EyeStateTests(unittest.TestCase):
 
     def test_closing_precedes_closed_and_reopening_has_hysteresis(self):
         eyes = self.ready()
-        self.assertTrue(eyes.update([.23, .23])['closing'])
-        self.assertFalse(eyes.update([.23, .23])['closed'])
-        self.assertTrue(eyes.update([.15, .15])['closed'])
-        self.assertTrue(eyes.update([.21, .21])['closed'])
+        self.assertTrue(eyes.update([.17, .17])['closing'])
+        self.assertFalse(eyes.update([.17, .17])['closed'])
+        self.assertTrue(eyes.update([.14, .14])['closed'])
+        self.assertTrue(eyes.update([.18, .18])['closed'])
         self.assertFalse(eyes.update([.3, .3])['closed'])
+
+    def test_looking_down_with_lowered_lids_is_not_closing(self):
+        eyes = self.ready()
+        # 아래쪽을 보면 눈꺼풀이 내려와 평소의 약 0.7이 된다: 시선을 멈추면 안 된다
+        self.assertFalse(eyes.update([.21, .21])['closing'])
+        # 깜빡인 뒤 아래쪽을 계속 봐도(0.67) 다시 뜬 것으로 본다
+        self.assertTrue(eyes.update([.1, .1])['closed'])
+        self.assertFalse(eyes.update([.20, .20])['closing'])
 
     def test_long_closure_does_not_relearn_closed_eyes_as_open(self):
         eyes = self.ready()
@@ -23,8 +31,8 @@ class EyeStateTests(unittest.TestCase):
 
     def test_partial_landmark_closure_is_detected_without_accepting_a_wink(self):
         eyes = self.ready()
-        self.assertFalse(eyes.update([.20, .30])['closed'])
-        self.assertTrue(eyes.update([.20, .20])['closed'])
+        self.assertFalse(eyes.update([.14, .30])['closed'])
+        self.assertTrue(eyes.update([.14, .14])['closed'])
         self.assertFalse(eyes.update([.30, .30])['closed'])
 
     def test_small_eyes_use_their_own_baseline_and_wink_is_not_two_eye_gesture(self):
