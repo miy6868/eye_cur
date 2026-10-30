@@ -144,6 +144,8 @@ async def socket(ws: WebSocket):
 
 
 if __name__ == "__main__":
+    from backend.camera import choose_camera
+    choose_camera()
     print(f"\n확장 프로그램 연결 토큰: {TOKEN}")
     print("테스트 페이지: http://127.0.0.1:8765/demo\n")
     # 메시지 크기 상한: 보정 기록(표본 수백 개, 약 40~100KB)이 들어가도록 1MB. 너무 큰 메시지는 여전히 거부한다
