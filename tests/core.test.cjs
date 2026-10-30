@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, checkErrors, gazeInput, correctDrift, eyeRange, eyeSize} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, checkErrors, gazeInput, correctDrift, eyeRange, eyeSize, windowBounds} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -289,4 +289,13 @@ test('MouthClick cancels an opening longer than 2 seconds', () => {
   const {m, clicked} = mouthClick(2.5);
   assert.equal(clicked, null);
   assert.equal(m.result, 'long');
+});
+
+test('window margins: sides and a wider bottom, no top margin', () => {
+  const bounds = windowBounds({left: 0, top: 0, width: 1920, height: 1040});
+  assert.deepEqual(bounds, {left: 115, top: 0, width: 1690, height: 884});
+  // 두 번째 모니터처럼 화면이 0,0에서 시작하지 않아도 그 화면 안에 둔다
+  const second = windowBounds({left: 1920, top: 0, width: 1000, height: 1000});
+  assert.equal(second.left, 1980);
+  assert.equal(second.left + second.width, 2860);
 });

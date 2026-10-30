@@ -10,6 +10,7 @@ const requests = new Map();
 let pageRetryTimer = null, pageRetryAttempt = 0;
 let socketRetryTimer = null, socketRetryAttempt = 0;
 let pairingToken = null;
+let savedWindow = null; // 여백을 만들기 전 창 상태: 중지하면 이대로 되돌린다
 
 function retryPage() {
   if (!enabled || pageRetryTimer !== null) return;
@@ -40,6 +41,32 @@ async function detach(reason = '다른 탭에서 계속합니다.') {
   return epoch;
 }
 
+// 창을 줄여 화면 가장자리에 여백을 만든다. 실패해도(타일링 창 관리자 등) 시선 추적은 계속한다
+async function shrinkWindow(tabId, bounds) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    const window = await chrome.windows.get(tab.windowId);
+    // 이미 줄인 상태에서 다시 시작하면 줄인 크기를 원래 크기로 착각하지 않게 처음 것만 기억한다
+    if (!savedWindow) {
+      savedWindow = {id: window.id, state: window.state, left: window.left, top: window.top, width: window.width, height: window.height};
+    }
+    // 최대화·전체 화면 상태에서는 크기를 바꿀 수 없어 먼저 보통 창으로 바꾼다
+    if (window.state !== 'normal') await chrome.windows.update(window.id, {state: 'normal'});
+    await chrome.windows.update(window.id, bounds);
+  } catch {}
+}
+
+async function restoreWindow() {
+  const previous = savedWindow;
+  savedWindow = null;
+  if (!previous) return;
+  try {
+    if (previous.state === 'normal') {
+      await chrome.windows.update(previous.id, {left: previous.left, top: previous.top, width: previous.width, height: previous.height});
+    } else await chrome.windows.update(previous.id, {state: previous.state});
+  } catch {}
+}
+
 async function stop(reason = '중지됨') {
   enabled = false; savedCalibration = null; status = reason;
   clearTimeout(pageRetryTimer); clearTimeout(socketRetryTimer);
@@ -48,6 +75,7 @@ async function stop(reason = '중지됨') {
   const old = connection; connection = null;
   if (old) old.close();
   await detach(reason);
+  await restoreWindow();
 }
 
 async function attach(tabId) {
@@ -142,13 +170,15 @@ function forgetCalibration() {
   chrome.storage.local.remove('calibration');
 }
 
-async function start(tabId, token) {
+async function start(tabId, token, bounds) {
   pairingToken = token;
   clearTimeout(socketRetryTimer); socketRetryTimer = null;
   // 지난 세션의 보정을 불러온다. ESC로 끄거나 브라우저를 다시 켜도 보정을 처음부터 하지 않는다
   // 창 크기·위치가 달라졌으면 content.js가 layout을 비교해 새로 보정한다
   const stored = await chrome.storage.local.get('calibration');
   savedCalibration = stored.calibration || null;
+  // 페이지에 보정 화면을 띄우기 전에 창을 줄여야 줄어든 화면 기준으로 보정한다
+  if (bounds) await shrinkWindow(tabId, bounds);
   enabled = true;
   if (!connection || connection.readyState > WebSocket.OPEN) connect(token);
   await attach(tabId);
@@ -157,7 +187,7 @@ async function start(tabId, token) {
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message.type === 'getStatus') { reply({status, enabled}); return; }
   if (message.type === 'start' && !sender.tab) {
-    start(message.tabId, message.token).then(() => reply({ok: true})).catch(error => reply({error: error.message}));
+    start(message.tabId, message.token, message.bounds).then(() => reply({ok: true})).catch(error => reply({error: error.message}));
     return true;
   }
   const current = sender.tab?.id === activeTab && message.context === context;
