@@ -35,7 +35,7 @@ class AsyncTrackerTests(unittest.TestCase):
                 for _ in range(25): tracker.read()
                 self.assertTrue(started.wait(1))
                 self.assertFalse(tracker.gaze_future.done())
-                ratio.return_value = .23
+                ratio.return_value = .17  # 평소(.3)의 0.57: 감는 중(0.60 미만)
                 self.assertTrue(tracker.read()['closing'])
                 ratio.return_value = .12
                 frame = tracker.read()
