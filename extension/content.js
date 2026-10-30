@@ -8,7 +8,7 @@
   // true: 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 고친다(클릭 보정). 효과를 아직 측정하지 않아 기본은 끔
   const CLICK_DRIFT = false;
   const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, average, checkErrors, gazeInput, correctDrift, eyeRange, eyeSize} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize} = globalThis.GazeCore;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -28,13 +28,13 @@
   let lockGaze = null; // 클릭 대상이 고정되는 순간의 예측 위치(px): 클릭이 끝나면 드리프트 보정에 쓴다
   const GRAPH_MS = 3000;
   const JITTER_MS = 1500;
-  // 고정 점 대신 움직이는 점을 따라 보게 해 표본이 화면 전체에 고르게 퍼지게 한다
-  const MIN_PURSUIT_RECORDS = 40; // 경로를 다 돌았는데 이보다 적으면 얼굴을 자주 놓친 것이므로 실패 처리
-  // 검증 점: 보정 경로(4줄) 사이, 옛 9점 사이 위치. 보정에 쓰지 않은 곳에서 실제 오차를 잰다
-  const CHECK_POINTS = [[.25, .2], [.75, .2], [.75, .8], [.25, .8]];
-  const CHECK_SETTLE_MS = 600;   // 점이 나타난 뒤 눈이 옮겨 갈 때까지 버리는 시간
-  const CHECK_COLLECT_MS = 1000; // 점 하나에서 모으는 시간
-  const CHECK_TIMEOUT_MS = 4000; // 얼굴을 놓쳐도 이 시간이 지나면 다음 점으로 넘어간다
+  // 9점 응시 보정: 점마다 0.5초는 눈이 옮겨 가는 시간이라 버리고, 0.8초 동안 표본을 모은다. 18번 × 1.3초 ≈ 24초
+  const POINT_SETTLE_MS = 500;
+  const POINT_COLLECT_MS = 800;
+  const POINT_MIN_RECORDS = 3;    // 눈을 감아 표본이 이보다 적으면 조금 더 기다린다
+  const POINT_TIMEOUT_MS = 2000;  // 그래도 이 시간이 지나면 다음 점으로: 18번 × 2초라도 40초를 넘지 않는다
+  // 저장된 보정이 어떤 방식으로 만들어졌는지 표시: 예전 움직이는 점 보정은 이어 쓰지 않고 다시 보정한다
+  const CALIBRATION_METHOD = 'points9';
   let currentContext;
   let running = false, host, shadow, model, calibration, smooth, clicker;
   let selected = null, pending = null, requestNumber = 0, lastRequest = 0;
@@ -76,26 +76,29 @@
     ids = new WeakMap(); idNumber = 0; lastStatus = ''; lastFrame = performance.now();
     lastRequest = 0; layout = geometry();
     const saved = message.calibration;
-    if (saved?.layout === layout) model = saved.model;
+    // 같은 창 배치에서 지금 방식으로 만든 보정만 이어서 쓴다
+    if (saved?.layout === layout && saved.model?.method === CALIBRATION_METHOD) model = saved.model;
+    else if (saved) send({type: 'calibrationInvalid'});
     // 클릭 보정을 껐으면 예전에 저장된 오프셋도 쓰지 않는다
     if (model && !CLICK_DRIFT) delete model.offset;
-    else if (saved) send({type: 'calibrationInvalid'});
-    calibration = model ? null : {startedAt: null, records: [], check: null, checks: []}; // startedAt: 첫 시선 결과가 오면 점이 출발한다
+    // step: 몇 번째 점인지(0~17), records: 지금 점에서 모은 기록, log: 서버에 남길 모든 기록
+    calibration = model ? null : {shownAt: null, step: 0, records: [], log: [],
+      points: CALIBRATION_POINTS.map(target => ({target, medians: []}))};
     host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
     shadow = host.attachShadow({mode: 'closed'});
     shadow.innerHTML = `
       <style>
       :host{all:initial}*{box-sizing:border-box}[hidden]{display:none!important}
-      #veil{position:fixed;inset:0;background:#0c1728f5;pointer-events:auto}
+      /* 보정 화면은 웹페이지처럼 밝게: 어두운 화면에서 보정하고 밝은 페이지에서 쓰면 얼굴 조명·동공 크기가 달라져 시선 값이 통째로 밀린다 */
+      #veil{position:fixed;inset:0;background:#f6f7f9;pointer-events:auto}
       #use{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);padding:12px 22px;font:600 16px system-ui;background:#21dba0;color:#071b2a}
-      #dot{position:fixed;width:26px;height:26px;border:5px solid #fff;border-radius:50%;background:#32dba0;transform:translate(-50%,-50%);box-shadow:0 0 0 14px #32dba029}
-      #path{position:fixed;inset:0;width:100%;height:100%}
-      #guide{position:fixed;top:50%;left:50%;transform:translate(-50%,calc(-100% - 8px));font:16px/1.5 system-ui;color:#fff;text-align:center}
+      #dot{position:fixed;width:22px;height:22px;border:6px solid #21dba0;border-radius:50%;background:#111827;transform:translate(-50%,-50%)}
+      #guide{position:fixed;top:30%;left:50%;transform:translate(-50%,-50%);font:16px/1.5 system-ui;color:#111827;text-align:center}
       #panel{position:fixed;bottom:14px;left:14px;max-width:520px;border:1px solid #ffffff24;background:#142236;color:#fff;border-radius:9px;padding:10px 14px;font:13px/1.5 system-ui;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
       button{pointer-events:auto;white-space:nowrap;border:0;border-radius:5px;padding:6px 9px;background:#33465e;color:#fff;cursor:pointer}
-      /* 보정 중에는 정보 상자를 화면 가운데 두 줄 사이로 옮겨 점을 가리지 않게 한다 */
-      #panel.calibrating{top:calc(50% + 8px);bottom:auto;left:50%;transform:translateX(-50%);max-width:min(760px,90vw)}
+      /* 보정 중에는 안내(30%)와 정보 상자(70%)를 점 줄(10·50·90%) 사이에 두어 점을 가리지 않게 한다 */
+      #panel.calibrating{top:70%;bottom:auto;left:50%;transform:translate(-50%,-50%);max-width:min(760px,90vw)}
       #panel.calibrating :is(#mouth,#filter,#jitter,#graph){display:none}
       #eyesize{color:#ffcf4d;font-weight:600}
       #raw{position:fixed;width:6px;height:6px;border-radius:50%;background:#ff3b3b;transform:translate(-50%,-50%)}
@@ -103,7 +106,7 @@
       #cursor{position:fixed;width:12px;height:12px;border:2px solid #fff;border-radius:50%;background:#176cff;transform:translate(-50%,-50%)}
       #target{position:fixed;border:3px solid #21dba0;border-radius:5px;background:#21dba01a;box-shadow:0 0 0 2px #071b2a99}
       </style>
-      <div id="veil"><svg id="path" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${PURSUIT_PATH.map(p => p.map(v => v * 100).join(' ')).join(' ')}" fill="none" stroke="#8a94a6" stroke-width="3" stroke-dasharray="8 6" vector-effect="non-scaling-stroke"/></svg><div id="guide">머리를 고정하고, 회색 선을 따라 움직이는 초록 점을 눈으로 따라가세요.<br>꺾이는 곳에서는 잠시 멈춥니다.</div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
+      <div id="veil"><div id="guide">머리를 고정하고 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>9개 점을 앞으로 한 번, 거꾸로 한 번 봅니다 · 약 25초</div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
       <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="drift"></span><span id="eyesize"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
@@ -112,7 +115,7 @@
     shadow.querySelector('#use').onclick = () => finishCalibration(calibration.result);
     showFilterName();
     shadow.querySelector('#panel').classList.toggle('calibrating', !!calibration);
-    if (calibration) { moveDot(calibration); status('움직이는 점 보정 · 카메라 연결 대기 중…'); }
+    if (calibration) { showPoint(null); status('9점 보정 · 카메라 연결 대기 중…'); }
     else { shadow.querySelector('#veil').hidden = true; status('저장된 보정으로 계속합니다 · 어긋나면 다시 보정을 누르세요.'); showDrift(); }
     timer = setInterval(() => {
       if (!running) return;
@@ -126,52 +129,64 @@
       }
     }, 100);
   }
-  // 화면이 그려질 때마다 점을 경로 위 현재 위치로 옮긴다
-  function moveDot(owner) {
-    // 보정이 끝났거나 새로 시작했으면 이 반복을 멈춘다
-    if (!running || calibration !== owner || owner.result) return;
-    const elapsed = owner.startedAt === null ? 0 : performance.now() - owner.startedAt;
-    const step = pursuitPoint(elapsed);
-    if (!step) return;
+  // 보정 점 하나를 보여 준다. now가 null이면 첫 시선 결과가 올 때 시간을 재기 시작한다
+  function showPoint(now) {
+    calibration.shownAt = now;
+    calibration.records = [];
+    const [x, y] = CALIBRATION_POINTS[CALIBRATION_ORDER[calibration.step]];
     const dot = shadow.querySelector('#dot');
-    dot.style.left = `${step.point[0] * 100}vw`; dot.style.top = `${step.point[1] * 100}vh`;
-    requestAnimationFrame(() => moveDot(owner));
+    dot.style.left = `${x * 100}vw`; dot.style.top = `${y * 100}vh`;
+    // 크게 나타나 작아지는 점이 눈을 끌어당긴다. 작아지는 0.5초가 눈이 옮겨 가는 시간(POINT_SETTLE_MS)이다
+    dot.animate([{transform: 'translate(-50%,-50%) scale(3)'}, {transform: 'translate(-50%,-50%) scale(1)'}], POINT_SETTLE_MS);
   }
   function calibrate(frame, now) {
-    if (calibration.check) { check(frame, now); return; }
-    if (calibration.startedAt === null) {
-      // 카메라가 늦게 켜져도 점이 먼저 출발하지 않도록 첫 시선 결과에서 시계를 시작한다
+    if (calibration.shownAt === null) {
+      // 카메라가 늦게 켜져도 첫 점 시간이 먼저 흐르지 않도록 첫 시선 결과에서 시계를 시작한다
       if (!Array.isArray(frame.gaze)) return;
-      calibration.startedAt = now;
+      calibration.shownAt = now;
     }
-    const record = pursuitRecord(frame, now, calibration.startedAt);
-    if (record) {
+    // record.time은 점이 나타난 뒤 촬영까지 걸린 시간. 눈이 아직 옮겨 가는 중인 앞부분은 버린다
+    const record = gazeRecord(frame, now, calibration.shownAt);
+    if (record && record.time >= POINT_SETTLE_MS) {
       annotate(record, frame);
       calibration.records.push(record);
     }
-    if (pursuitPoint(now - calibration.startedAt)) {
-      status(`시선 보정 중 · 표본 ${calibration.records.length}개 · 움직이는 초록 점을 눈으로 따라가세요`);
-      return;
-    }
-    if (calibration.records.length < MIN_PURSUIT_RECORDS) {
-      calibrationFailed(`시선 표본이 ${calibration.records.length}개뿐입니다. 얼굴이 카메라에 잘 보이는지 확인하고 다시 보정하세요.`);
+    status(`시선 보정 중 · ${calibration.step + 1}/${CALIBRATION_ORDER.length} · 점이 작아지면 가운데를 바라보세요`);
+    const elapsed = now - calibration.shownAt;
+    const enough = elapsed >= POINT_SETTLE_MS + POINT_COLLECT_MS && calibration.records.length >= POINT_MIN_RECORDS;
+    if (!enough && elapsed < POINT_TIMEOUT_MS) return;
+    finishPoint();
+    if (calibration.step < CALIBRATION_ORDER.length) { showPoint(now); return; }
+    learn();
+  }
+  // 지금 점의 기록을 중앙값 하나로 줄여 그 점에 더하고 다음 점으로 넘어간다
+  function finishPoint() {
+    const index = CALIBRATION_ORDER[calibration.step];
+    if (calibration.records.length) calibration.points[index].medians.push(medianGaze(calibration.records));
+    // 기록 분석용: 어느 점(point)의 몇 번째 차례(step)였는지 붙여 모두 남긴다
+    for (const record of calibration.records) calibration.log.push({...record, point: index, step: calibration.step});
+    calibration.step++;
+  }
+  // 18번을 모두 보면 회귀로 시선 → 화면 관계를 배운다
+  function learn() {
+    const missing = calibration.points.filter(p => !p.medians.length).length;
+    if (missing) {
+      calibrationFailed(`점 ${missing}개에서 시선 표본을 얻지 못했습니다. 얼굴이 카메라에 잘 보이는지 확인하고 다시 보정하세요.`);
       return;
     }
     try {
-      model = fitPursuit(calibration.records);
+      model = fitPoints(calibration.points);
     } catch (error) { calibrationFailed(error.message); return; }
-    const heads = calibration.records.filter(r => r.head).map(r => r.head);
+    model.method = CALIBRATION_METHOD;
+    const heads = calibration.log.filter(r => r.head).map(r => r.head);
     if (heads.length) {
       const [roll, distance] = average(heads);
       const [pitch] = average(heads.map(h => [h[2], h[3]]));
       model.head = {roll, distance, pitch};
     }
-    const openness = calibration.records.map(r => r.openness).filter(Number.isFinite);
+    const openness = calibration.log.map(r => r.openness).filter(Number.isFinite);
     if (openness.length) model.eyeRange = eyeRange(openness);
-    // SVG 요소에는 .hidden 속성이 없어서 hidden 속성을 직접 붙인다 (CSS의 [hidden] 규칙으로 숨겨짐)
-    shadow.querySelector('#path').setAttribute('hidden', '');
-    shadow.querySelector('#guide').textContent = '검증: 초록 점이 나타나면 1초씩 바라보세요.';
-    showCheck(0, now);
+    judge();
   }
   // 기록에 머리 상태 [기울기, 거리, 끄덕임, 돌림]와 홍채 위치를 붙인다: 사용 중 비교와 기록 분석용
   function annotate(record, frame) {
@@ -179,63 +194,37 @@
     if (Array.isArray(frame.iris)) record.iris = frame.iris;
     if (Number.isFinite(frame.openness)) record.openness = frame.openness;
   }
-  // 검증 점 하나를 보여 준다
-  function showCheck(index, now) {
-    calibration.check = {index, shownAt: now};
-    calibration.checks[index] = {target: CHECK_POINTS[index], frames: []};
-    const dot = shadow.querySelector('#dot');
-    dot.style.left = `${CHECK_POINTS[index][0] * 100}vw`; dot.style.top = `${CHECK_POINTS[index][1] * 100}vh`;
-  }
-  function check(frame, now) {
-    const {index, shownAt} = calibration.check;
-    status(`검증 ${index + 1}/${CHECK_POINTS.length} · 초록 점을 바라보세요`);
-    // record.time은 점이 나타난 뒤 촬영까지 걸린 시간
-    const record = pursuitRecord(frame, now, shownAt);
-    if (record && record.time >= CHECK_SETTLE_MS) {
-      annotate(record, frame);
-      calibration.checks[index].frames.push(record);
-    }
-    const done = record?.time >= CHECK_SETTLE_MS + CHECK_COLLECT_MS || now - shownAt > CHECK_TIMEOUT_MS;
-    if (!done) return;
-    if (index + 1 < CHECK_POINTS.length) { showCheck(index + 1, now); return; }
-    judge();
-  }
-  // 검증 점 오차를 계산하고 기록을 서버에 보낸 뒤, 쓸지 말지 정한다
+  // 오차를 계산하고 기록을 서버에 보낸 뒤, 쓸지 말지 정한다
   function judge() {
-    const pixels = checkErrors(model, calibration.checks)
-      .filter(Boolean)
-      .map(([dx, dy]) => Math.round(Math.hypot(dx * innerWidth, dy * innerHeight)));
-    const checkPx = pixels.length ? Math.round(pixels.reduce((a, b) => a + b, 0) / pixels.length) : null;
-    // 나중에 회귀·입력을 바꿨을 때 같은 자료로 비교할 수 있도록 원래 값을 모두 남긴다
-    send({type: 'calibrationLog', screen: [innerWidth, innerHeight], lag: model.lag, degree: model.degree,
-      crossError: model.crossError, checkPixels: pixels, records: calibration.records, checks: calibration.checks});
-    // 교차 검증 오차: 표본 하나를 빼고 회귀한 뒤 뺀 표본을 맞혀 본 오차
+    // 교차 검증 오차: 점 하나를 빼고 회귀한 뒤 뺀 점을 맞혀 본 오차. 보정에 쓰지 않은 위치의 오차와 비슷하다
     const rms = model.crossError;
-    if (!Number.isFinite(rms)) { calibrationFailed('시선 좌표 계산에 실패했습니다. 다시 보정해 주세요.'); return; }
     // 화면 비율 단위 오차를 픽셀로 대략 바꾼다 (가로·세로 오차가 비슷하다고 본다)
     const pixelRms = Math.round(rms * Math.hypot(innerWidth, innerHeight) / Math.SQRT2);
+    // 나중에 회귀·입력을 바꿨을 때 같은 자료로 비교할 수 있도록 원래 값을 모두 남긴다
+    send({type: 'calibrationLog', screen: [innerWidth, innerHeight], method: CALIBRATION_METHOD,
+      crossError: rms, errorPixels: pixelRms, points: calibration.points, records: calibration.log});
+    if (!Number.isFinite(rms)) { calibrationFailed('시선 좌표 계산에 실패했습니다. 다시 보정해 주세요.'); return; }
     if (rms > .15) {
       // 학습은 끝났으니 버리지 않고, 오차를 보여 준 뒤 사용자가 계속할지 고르게 한다
-      calibration.result = {rms, pixelRms, checkPx};
-      const message = `교차 검증 오차 약 ${pixelRms}px로 기준보다 큽니다. 그래도 사용하거나 다시 보정하세요.`;
+      calibration.result = {rms, pixelRms};
+      const message = `점 오차 약 ${pixelRms}px로 기준보다 큽니다. 그래도 사용하거나 다시 보정하세요.`;
       shadow.querySelector('#guide').textContent = message;
       shadow.querySelector('#dot').hidden = true;
       shadow.querySelector('#use').hidden = false;
       status(message);
       return;
     }
-    finishCalibration({rms, pixelRms, checkPx});
+    finishCalibration({rms, pixelRms});
   }
-  function finishCalibration({rms, pixelRms, checkPx}) {
+  function finishCalibration({rms, pixelRms}) {
     // 검증 오차만큼 후보 탐색 반경도 넓어지도록 모델 오차에 반영한다
     model.error = Math.max(model.error, rms);
     calibration = null; shadow.querySelector('#veil').hidden = true;
     shadow.querySelector('#panel').classList.remove('calibrating');
     send({type: 'calibrated', model, layout});
-    const checked = checkPx === null ? '검증 점 표본 없음' : `검증 점 오차 약 ${checkPx}px`;
     // 상태 줄은 다음 프레임에 바로 바뀌므로 보정 결과는 따로 계속 보여 준다
-    shadow.querySelector('#quality').textContent = `보정 결과: ${checked} · 시선 지연 ${model.lag}ms`;
-    status(`준비됨 · ${model.degree === 2 ? '비선형' : '선형'} 보정 · ${checked} · 교차 검증 ${pixelRms}px · 시선 지연 ${model.lag}ms · ${CLICK_HINT}.`);
+    shadow.querySelector('#quality').textContent = `보정 결과: 점 오차 약 ${pixelRms}px`;
+    status(`준비됨 · 9점 보정 · 점 오차 약 ${pixelRms}px · ${CLICK_HINT}.`);
   }
   function calibrationFailed(message) {
     running = false; clearInterval(timer); invalidate();
@@ -344,8 +333,7 @@
     else if (clicker.result === 'short') status('짧은 깜빡임 · 클릭하려면 0.6초 이상 감아 주세요.');
     else if (clicker.result === 'long') status('2초를 넘겨 클릭을 취소했습니다.');
     if (!message.gaze) return;
-    // 예전에 2개 입력으로 저장한 보정은 features가 앞의 2개만 쓰므로 그대로 동작한다
-    const point = predict(model, gazeInput(message));
+    const point = predict(model, message.gaze);
     if (point.some(v => !Number.isFinite(v))) {
       pending = null; requestNumber++; history = []; resetFilter();
       hideCursor(); return;

@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, PURSUIT_PATH, pursuitPoint, pursuitRecord, fitPursuit, checkErrors, gazeInput, correctDrift, eyeRange, eyeSize, windowBounds} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, windowBounds} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -68,78 +68,57 @@ test('distance uses element boundary, not only its center', () => {
   assert.equal(distanceToRect(120, 30, [10, 10, 100, 40]), 10);
 });
 
-test('pursuit dot stops at each corner, moves in a zigzag, then ends', () => {
-  // 시작 꼭짓점에서 0.8초 멈춘다. 앞 0.4초는 눈이 자리 잡는 중이라 표본으로 쓰지 않는다
-  assert.deepEqual(pursuitPoint(0), {point: [.05, .05], steady: false});
-  assert.deepEqual(pursuitPoint(500), {point: [.05, .05], steady: true});
-  // 1초에 화면 30%: 출발 2초 뒤에는 첫 줄의 0.65 지점
-  const moving = pursuitPoint(800 + 2000);
-  assert.ok(Math.abs(moving.point[0] - .65) < 1e-9 && moving.point[1] === .05 && moving.steady);
-  // 출발 직후는 버린다
-  assert.equal(pursuitPoint(800 + 100).steady, false);
-  // 첫 줄 끝(3초)에 도착하면 오른쪽 위 모서리에서 다시 멈춘다
-  assert.deepEqual(pursuitPoint(800 + 3000 + 500).point, [.95, .05]);
-  // 4줄(3.6) + 줄 사이 3번(0.9) = 4.5 거리 = 15초, 꼭짓점 8개 × 0.8초 = 6.4초
-  assert.deepEqual(pursuitPoint(21300).point, PURSUIT_PATH.at(-1));
-  assert.equal(pursuitPoint(21500), null);
+test('gaze records keep the capture time, not the arrival time', () => {
+  // 3000ms에 도착했지만 200ms 전에 찍은 프레임. 점은 1000ms에 나타났다
+  assert.deepEqual(gazeRecord({valid: true, gaze: [.1, .2], captureAgeMs: 200}, 3000, 1000), {gaze: [.1, .2], time: 1800});
+  assert.equal(gazeRecord({valid: true, closed: true, gaze: [.1, .2]}, 3000, 0), null);
+  assert.equal(gazeRecord({valid: true}, 3000, 0), null);
+  assert.equal(gazeRecord({valid: true, gaze: [.1, .2], captureAgeMs: 900}, 3000, 0), null);
 });
-test('pursuit records keep the capture time, not the arrival time', () => {
-  // 3000ms에 도착했지만 200ms 전에 찍은 프레임
-  assert.deepEqual(pursuitRecord({valid: true, gaze: [.1, .2], captureAgeMs: 200}, 3000, 1000), {gaze: [.1, .2], time: 1800});
-  assert.equal(pursuitRecord({valid: true, closed: true, gaze: [.1, .2]}, 3000, 0), null);
-  assert.equal(pursuitRecord({valid: true}, 3000, 0), null);
-  assert.equal(pursuitRecord({valid: true, gaze: [.1, .2], captureAgeMs: 900}, 3000, 0), null);
-});
-test('pursuit fit finds the gaze delay and fills the gaps between rows', () => {
-  // 비선형 시선 → 화면 관계, 시선은 점보다 150ms 늦게 따라온다
-  const mapping = ([x, y]) => [.5 + .8 * x + .25 * y * y, .5 + .8 * y + .2 * x * y];
-  const inverse = ([u, v]) => {
-    let g = [u - .5, v - .5];
-    for (let i = 0; i < 50; i++) g = g.map((value, k) => value + ([u, v][k] - mapping(g)[k]) / .8);
-    return g;
-  };
-  const records = [];
-  for (let t = 0; t < 22000; t += 40) records.push({gaze: inverse(pursuitPoint(Math.max(0, t - 150))?.point || PURSUIT_PATH.at(-1)), time: t});
-  const model = fitPursuit(records);
-  assert.equal(model.lag, 150);
-  assert.equal(model.degree, 2);
-  // 줄과 줄 사이의 중간 위치와 모서리도 맞힌다
-  for (const target of [[.27, .2], [.73, .5], [.5, .8], [.05, .95]]) {
-    assert.ok(Math.hypot(...predict(model, inverse(target)).map((v, k) => v - target[k])) < .005);
+
+test('calibration visits each of the 9 points twice, forward then backward', () => {
+  assert.equal(CALIBRATION_ORDER.length, 18);
+  for (const index of CALIBRATION_POINTS.keys()) {
+    const steps = CALIBRATION_ORDER.flatMap((value, step) => value === index ? [step] : []);
+    // 두 번 본 차례의 평균이 모든 점에서 8.5로 같다
+    assert.equal(steps.length, 2);
+    assert.equal((steps[0] + steps[1]) / 2, 8.5);
   }
 });
 
-test('check errors use the median prediction and skip points without frames', () => {
-  const model = fit([0, .5, 1].flatMap(x => [0, .5, 1].map(y => ({gaze: [x, y], target: [x, y]}))));
-  // 세 프레임 중 하나가 크게 튀어도 중앙값은 그대로
-  const errors = checkErrors(model, [
-    {target: [.25, .2], frames: [{gaze: [.3, .2]}, {gaze: [.3, .2]}, {gaze: [.9, .9]}]},
-    {target: [.75, .8], frames: []},
-  ]);
-  assert.ok(Math.abs(errors[0][0] - .05) < 1e-9 && Math.abs(errors[0][1]) < 1e-9);
-  assert.equal(errors[1], null);
+test('median of a point ignores a stray frame', () => {
+  const records = [{gaze: [.1, .2]}, {gaze: [.1, .2]}, {gaze: [.9, -.5]}];
+  assert.deepEqual(medianGaze(records), [.1, .2]);
 });
 
-test('regression input adds iris position to GazeTR gaze when available', () => {
-  assert.deepEqual(gazeInput({gaze: [.1, .2], iris: [.03, -.04]}), [.1, .2, .03, -.04]);
-  assert.deepEqual(gazeInput({gaze: [.1, .2]}), [.1, .2]);
-  assert.deepEqual(gazeInput({gaze: [.1, .2], iris: [NaN, 0]}), [.1, .2]);
+// 9개 점을 order 순서로 보며, 차례마다 시선 값이 세로로 0.004씩 밀리는(드리프트) 상황
+function driftingPoints(order) {
+  const points = CALIBRATION_POINTS.map(target => ({target, medians: []}));
+  order.forEach((index, step) => {
+    const [x, y] = CALIBRATION_POINTS[index];
+    points[index].medians.push([x * .4 - .2, y * .3 - .1 + step * .004]);
+  });
+  return points;
+}
+
+test('round trip turns slow drift into the same shift for every point', () => {
+  // 왕복: 드리프트가 모든 점에 똑같이 더해져서 1차 회귀가 정확히 맞는다
+  const roundTrip = fitPoints(driftingPoints(CALIBRATION_ORDER));
+  assert.ok(roundTrip.crossError < 1e-9);
+  // 같은 방향으로 두 바퀴: 늦게 본 점일수록 더 밀려 점 사이 관계가 틀어진다
+  const forward = [...CALIBRATION_POINTS.keys()];
+  const twice = fitPoints(driftingPoints([...forward, ...forward]));
+  assert.ok(twice.crossError > .01);
 });
-test('4-input regression uses iris to fix what GazeTR alone cannot', () => {
-  // GazeTR 세로 값에 시간에 따라 바뀌는 치우침(drift)이 섞였고, 홍채 세로 값은 정확하다고 가정
-  const samples = [];
-  for (let i = 0; i < 200; i++) {
-    const target = [(i % 20) / 19, Math.floor(i / 20) / 9];
-    const drift = Math.sin(i) * .05;
-    // 실제처럼 홍채 가로 값에도 GazeTR과 무관한 작은 흔들림이 있다 (완전히 비례하면 회귀를 풀 수 없다)
-    samples.push({gaze: [target[0] - .5, target[1] - .5 + drift, (target[0] - .5) * .2 + Math.cos(i * 7) * .002, (target[1] - .5) * .1], target});
-  }
-  const model = fit(samples);
-  const twoInputs = fit(samples.map(s => ({...s, gaze: s.gaze.slice(0, 2)})));
-  assert.ok(model.crossError < .01);
-  assert.ok(twoInputs.crossError > .02);
-  // 예전 2개 입력 보정에 4개 입력을 넣어도 앞의 2개만 쓴다
-  assert.deepEqual(predict(twoInputs, [.1, .2, 9, 9]), predict(twoInputs, [.1, .2]));
+
+test('point fit averages both passes and uses one pass when the other is missing', () => {
+  const points = CALIBRATION_POINTS.map(([x, y]) => ({target: [x, y], medians: [[x * .4 - .2 + .01, y * .3 - .1], [x * .4 - .2 - .01, y * .3 - .1]]}));
+  // 한 점은 눈을 감아 한 바퀴만 얻었다
+  points[4].medians = [[.5 * .4 - .2, .5 * .3 - .1]];
+  const model = fitPoints(points);
+  const result = predict(model, [.3 * .4 - .2, .7 * .3 - .1]);
+  assert.ok(Math.abs(result[0] - .3) < 1e-8 && Math.abs(result[1] - .7) < 1e-8);
+  assert.equal(model.degree, 1);
 });
 
 test('a click moves the offset halfway toward the clicked element center', () => {
