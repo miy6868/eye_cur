@@ -93,6 +93,7 @@
       /* 보정 화면은 웹페이지처럼 밝게: 어두운 화면에서 보정하고 밝은 페이지에서 쓰면 얼굴 조명·동공 크기가 달라져 시선 값이 통째로 밀린다 */
       #veil{position:fixed;inset:0;background:#f6f7f9;pointer-events:auto}
       #use{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);padding:12px 22px;font:600 16px system-ui;background:#21dba0;color:#071b2a}
+      #next{position:fixed;width:46px;height:46px;border:3px dashed #9ca3af;border-radius:50%;transform:translate(-50%,-50%)}
       #dot{position:fixed;width:22px;height:22px;border:6px solid #21dba0;border-radius:50%;background:#111827;transform:translate(-50%,-50%)}
       #guide{position:fixed;top:30%;left:50%;transform:translate(-50%,-50%);font:16px/1.5 system-ui;color:#111827;text-align:center}
       #panel{position:fixed;bottom:14px;left:14px;max-width:520px;border:1px solid #ffffff24;background:#142236;color:#fff;border-radius:9px;padding:10px 14px;font:13px/1.5 system-ui;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
@@ -106,7 +107,7 @@
       #cursor{position:fixed;width:12px;height:12px;border:2px solid #fff;border-radius:50%;background:#176cff;transform:translate(-50%,-50%)}
       #target{position:fixed;border:3px solid #21dba0;border-radius:5px;background:#21dba01a;box-shadow:0 0 0 2px #071b2a99}
       </style>
-      <div id="veil"><div id="guide">머리를 고정하고 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>9개 점을 앞으로 한 번, 거꾸로 한 번 봅니다 · 약 25초</div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
+      <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 약 25초</div><div id="next"></div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
       <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="drift"></span><span id="eyesize"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
@@ -138,6 +139,13 @@
     dot.style.left = `${x * 100}vw`; dot.style.top = `${y * 100}vh`;
     // 크게 나타나 작아지는 점이 눈을 끌어당긴다. 작아지는 0.5초가 눈이 옮겨 가는 시간(POINT_SETTLE_MS)이다
     dot.animate([{transform: 'translate(-50%,-50%) scale(3)'}, {transform: 'translate(-50%,-50%) scale(1)'}], POINT_SETTLE_MS);
+    // 다음 점 자리를 회색 점선 원으로 미리 보여 준다: 처음 쓰는 사용자도 점이 어디로 갈지 안다
+    // 같은 점을 한 번 더 볼 때(바퀴가 바뀔 때)는 원이 지금 점을 둘러싸서 "그대로 보라"는 뜻이 된다
+    const next = CALIBRATION_ORDER[calibration.step + 1];
+    const ring = shadow.querySelector('#next');
+    ring.hidden = next === undefined; // 마지막 점에서는 다음이 없다
+    if (next === undefined) return;
+    ring.style.left = `${CALIBRATION_POINTS[next][0] * 100}vw`; ring.style.top = `${CALIBRATION_POINTS[next][1] * 100}vh`;
   }
   function calibrate(frame, now) {
     if (calibration.shownAt === null) {

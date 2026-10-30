@@ -11,7 +11,9 @@ document.querySelector('#start').onclick = async () => {
     const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
     // 서비스 워커는 screen을 모르므로 팝업이 지금 모니터의 작업 영역으로 줄일 창 크기를 계산해 보낸다
     const area = {left: screen.availLeft, top: screen.availTop, width: screen.availWidth, height: screen.availHeight};
-    const bounds = GazeCore.windowBounds(area);
+    // 서버가 창 줄이기를 끄라고 하면(start.sh의 SHRINK_WINDOW=0) 창을 그대로 둔다. 서버가 안 켜져 있으면 줄인다
+    const health = await fetch('http://127.0.0.1:8765/health').then(response => response.json()).catch(() => ({}));
+    const bounds = health.shrinkWindow === false ? null : GazeCore.windowBounds(area);
     const reply = await chrome.runtime.sendMessage({type: 'start', tabId: tab.id, token: token.value.trim(), bounds});
     if (reply.error) throw new Error(reply.error);
     window.close();
