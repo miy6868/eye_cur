@@ -45,7 +45,7 @@
   let lastFrame = 0, history = [], timer, layout, lastStatus = '';
   let ids = new WeakMap(), idNumber = 0;
   // 팝업의 '화면에 정보 표시'. 사이트를 방해하지 않도록 기본은 꺼짐.
-  // 켜야 왼쪽 아래 정보 상자·빨간 원본 점이 보이고 단축키(F 필터, ESC 중지)가 동작한다
+  // 켜야 왼쪽 아래 정보 상자가 보이고 단축키(F 필터, ESC 중지)가 동작한다
   let showInfo = false;
 
   function send(message) { return chrome.runtime.sendMessage({...message, context: currentContext}).catch(() => {}); }
@@ -232,7 +232,6 @@
   function applyInfo() {
     if (!shadow) return;
     shadow.querySelector('#panel').hidden = !showInfo;
-    if (!showInfo) shadow.querySelector('#raw').hidden = true;
   }
   // 기록에 머리 상태 [기울기, 거리, 끄덕임, 돌림]와 홍채 위치를 붙인다: 사용 중 비교와 기록 분석용
   function annotate(record, frame) {
@@ -405,7 +404,7 @@
     const xy = [point[0] * innerWidth, point[1] * innerHeight];
     // 필터를 끈 상태면 원본 점을 그대로 쓴다. 대상 선택에는 이 필터 결과(smooth)를 쓴다
     smooth = filter ? filter.update(xy) : xy;
-    if (showInfo) showDot('#raw', xy); // 빨간 원본 점은 필터 비교용이라 정보 표시를 켰을 때만
+    showDot('#raw', xy); // 빨간 원본 점: 필터 전 시선. 정보 표시와 상관없이 늘 보여 준다
     showDot('#cursor', smooth);
     trail.push({raw: xy, filtered: smooth, time: now});
     trail = trail.filter(p => now - p.time < GRAPH_MS);
