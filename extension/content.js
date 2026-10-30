@@ -104,7 +104,9 @@
       #choices button{padding:12px 22px;font:600 16px system-ui;border-radius:8px}
       #use{background:#21dba0;color:#071b2a}
       #next{position:fixed;width:46px;height:46px;border:3px dashed #9ca3af;border-radius:50%;transform:translate(-50%,-50%)}
-      #dot{position:fixed;width:22px;height:22px;border:6px solid #21dba0;border-radius:50%;background:#111827;transform:translate(-50%,-50%)}
+      #dot{position:fixed;width:66px;height:66px;border:18px solid #21dba0;border-radius:50%;background:#111827;transform:translate(-50%,-50%)}
+      /* 작아지는 움직임은 크기를 바꾸는 전환으로 만든다(시간은 showPoint에서 POINT_SETTLE_MS로 정함) */
+      #dot.small{width:22px;height:22px;border-width:6px;transition-property:width,height,border-width;transition-timing-function:ease-out}
       #guide{position:fixed;top:30%;left:50%;transform:translate(-50%,-50%);font:16px/1.5 system-ui;color:#111827;text-align:center}
       #guide p{margin:0}
       #progress{margin-top:8px!important;font-weight:600;color:#4b5563}
@@ -152,8 +154,13 @@
     const [x, y] = CALIBRATION_POINTS[CALIBRATION_ORDER[calibration.step]];
     const dot = shadow.querySelector('#dot');
     dot.style.left = `${x * 100}vw`; dot.style.top = `${y * 100}vh`;
-    // 크게 나타나 작아지는 점이 눈을 끌어당긴다. 작아지는 0.8초가 눈이 옮겨 가는 시간(POINT_SETTLE_MS)이다
-    dot.animate([{transform: 'translate(-50%,-50%) scale(3)'}, {transform: 'translate(-50%,-50%) scale(1)'}], POINT_SETTLE_MS);
+    // 크게 나타나 작아지는 점이 눈을 끌어당긴다. 작아지는 0.8초가 눈이 옮겨 가는 시간(POINT_SETTLE_MS)이다.
+    // transform 애니메이션(scale)은 점을 따로 떼어 그리는 층을 만들었다 없애서, Hyprland(화면 배율 1.2)에서
+    // 시작 직후 화면이 깜빡이고 찢어졌다. 그래서 점의 크기(width·height)를 바꾸는 전환으로 만든다
+    dot.classList.remove('small');
+    dot.getBoundingClientRect(); // 큰 크기를 한 번 계산시켜야 다음 줄의 전환이 큰 크기에서부터 다시 시작한다
+    dot.style.transitionDuration = `${POINT_SETTLE_MS}ms`;
+    dot.classList.add('small');
     // 다음 점 자리를 회색 점선 원으로 미리 보여 준다: 처음 쓰는 사용자도 점이 어디로 갈지 안다
     // 같은 점을 한 번 더 볼 때(바퀴가 바뀔 때)는 원이 지금 점을 둘러싸서 "그대로 보라"는 뜻이 된다
     const next = CALIBRATION_ORDER[calibration.step + 1];
