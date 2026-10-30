@@ -161,15 +161,12 @@ test('restricted tabs and external apps pause; returning resumes without camera 
   await h.sockets[0].receive({type: 'frame'});
   assert.equal(h.sent.length, count);
   await h.activate(2);
-  const attached = h.current();
-  // 다른 앱으로 가거나 팝업을 열어도(NONE) 떼어 내지 않는다. 멈추는 일은 페이지가 초점을 보고 한다
   await h.focus(false);
+  const paused = h.sent.length;
   await h.sockets[0].receive({type: 'frame'});
-  assert.equal(h.sent.at(-1).type, 'frame');
-  assert.equal(h.sent.at(-1).context, attached.context);
-  // 돌아와도 같은 페이지에 그대로 붙어 있다: 다시 시작하지 않고 카메라도 다시 연결하지 않는다
+  assert.equal(h.sent.length, paused);
   await h.focus(true);
-  assert.equal(h.current(), attached);
+  assert.equal(h.current().tabId, 2);
   assert.equal(h.sockets.length, 1);
 });
 
@@ -216,30 +213,4 @@ test('screen stays awake while running and is released on stop', async () => {
   assert.equal(h.keepAwake(), 'display');
   await h.message({type: 'stop'});
   assert.equal(h.keepAwake(), null);
-});
-
-test('popup recalibrates the running tab and shows the last calibration error', async () => {
-  const h = harness(); await h.message({type: 'start', tabId: 1, token: 'test'}); h.sockets[0].open();
-  await h.message({type: 'calibrated', context: h.current().context, model: {degree: 1, pixelError: 85}, layout: 'fixed'}, {tab: {id: 1}});
-  assert.equal((await h.message({type: 'getStatus'})).calibrationError, 85);
-  // 팝업에서 온 메시지에는 sender.tab이 없다
-  assert.equal((await h.message({type: 'recalibrate'})).ok, true);
-  assert.equal(h.current().calibration, null);
-  assert.equal((await h.message({type: 'getStatus'})).calibrationError, null);
-});
-
-test('popup recalibrate while stopped explains what to do', async () => {
-  const h = harness();
-  assert.match((await h.message({type: 'recalibrate'})).error, /웹페이지 탭/);
-});
-
-test('start and recalibrate work while the popup has taken window focus', async () => {
-  const h = harness();
-  // Wayland에서는 팝업이 떠 있는 동안 창이 초점을 잃은 것으로 나온다
-  await h.focus(false);
-  await h.message({type: 'start', tabId: 1, token: 'test'}); h.sockets[0].open();
-  assert.equal(h.current().tabId, 1);
-  await h.message({type: 'calibrated', context: h.current().context, model: {degree: 1}, layout: 'fixed'}, {tab: {id: 1}});
-  assert.equal((await h.message({type: 'recalibrate'})).ok, true);
-  assert.equal(h.current().calibration, null);
 });

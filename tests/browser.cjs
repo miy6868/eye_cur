@@ -21,8 +21,7 @@ const playwright = require(process.env.PLAYWRIGHT_PATH || 'playwright');
         const root = attachShadow.call(this, options); window.gazeShadow = root; return root;
       };
       window.chrome = {runtime: {sendMessage: async message => { window.sent.push(message); },
-        onMessage: {addListener: callback => { window.listener = callback; }}},
-        storage: {local: {get: async () => ({})}, onChanged: {addListener: () => {}}}};
+        onMessage: {addListener: callback => { window.listener = callback; }}}};
       window.tick = (gaze, closed = false, dt = 100, valid = true) => {
         window.clock += dt;
         window.listener({type: 'frame', gaze, closed, valid, time: window.clock});
