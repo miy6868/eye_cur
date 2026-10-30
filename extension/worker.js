@@ -69,6 +69,7 @@ async function restoreWindow() {
 
 async function stop(reason = '중지됨') {
   enabled = false; savedCalibration = null; status = reason;
+  chrome.power.releaseKeepAwake(); // 끝났으니 화면 꺼짐·잠금을 원래대로 돌려준다
   clearTimeout(pageRetryTimer); clearTimeout(socketRetryTimer);
   pageRetryTimer = null; socketRetryTimer = null; pairingToken = null;
   pageRetryAttempt = 0; socketRetryAttempt = 0;
@@ -180,6 +181,9 @@ async function start(tabId, token, bounds) {
   // 페이지에 보정 화면을 띄우기 전에 창을 줄여야 줄어든 화면 기준으로 보정한다
   if (bounds) await shrinkWindow(tabId, bounds);
   enabled = true;
+  // 눈과 입으로만 쓰면 키보드·마우스 입력이 없어서 운영체제가 쉬는 중으로 보고 화면을 어둡게 하거나 잠근다
+  // (Hyprland hypridle은 4.5분에 어둡게, 5분에 잠금). 화면이 어두워지면 얼굴도 어두워져 인식이 멈추므로 실행 중에는 화면을 켜 둔다
+  chrome.power.requestKeepAwake('display');
   if (!connection || connection.readyState > WebSocket.OPEN) connect(token);
   await attach(tabId);
 }

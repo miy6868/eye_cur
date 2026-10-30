@@ -7,6 +7,7 @@ const {randomUUID} = require('node:crypto');
 // stored: 가짜 chrome.storage.local 내용. 같은 객체를 넘기면 워커를 다시 켠 상황을 흉내 낸다
 function harness(stored = {}) {
   const handlers = {}, sent = [], sockets = [], injected = [], windowUpdates = [];
+  let keepAwake = null; // 가짜 chrome.power: 지금 요청 중인 화면 유지 단계
   const event = name => ({addListener: fn => { handlers[name] = fn; }});
   let selected = 1;
   let focused = true;
@@ -39,6 +40,7 @@ function harness(stored = {}) {
     }},
     windows: {WINDOW_ID_NONE: -1, get: async () => ({id: 1, focused, state: 'maximized'}), onFocusChanged: event('focus'),
       update: async (id, info) => { windowUpdates.push(info); }},
+    power: {requestKeepAwake: level => { keepAwake = level; }, releaseKeepAwake: () => { keepAwake = null; }},
     storage: {local: {
       get: async key => (key in stored ? {[key]: stored[key]} : {}),
       set: async items => { Object.assign(stored, items); },
@@ -64,6 +66,7 @@ function harness(stored = {}) {
     failNextInjection: () => { failInjection = true; },
     retry: async () => { const batch = [...timers.values()]; timers.clear(); for (const fn of batch) fn(); await flush(); },
     timerCount: () => timers.size,
+    keepAwake: () => keepAwake,
     current: () => sent.filter(m => m.type === 'start').at(-1),
   };
 }
@@ -202,4 +205,12 @@ test('start shrinks the window for edge margins and stop restores it', async () 
   assert.equal(h.current().tabId, 1);
   await h.message({type: 'stop'});
   assert.equal(h.windowUpdates.at(-1).state, 'maximized');
+});
+
+test('screen stays awake while running and is released on stop', async () => {
+  const h = harness(); await h.message({type: 'start', tabId: 1, token: 'test'});
+  // 눈으로만 쓰는 동안 화면이 어두워지거나 잠기지 않게 한다
+  assert.equal(h.keepAwake(), 'display');
+  await h.message({type: 'stop'});
+  assert.equal(h.keepAwake(), null);
 });
