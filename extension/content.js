@@ -332,7 +332,10 @@
     const mar = Number.isFinite(message.mar) ? message.mar.toFixed(2) : '-';
     shadow.querySelector('#mouth').textContent = `입 ${message.mouthOpen ? '벌림' : '다뭄'} · MAR ${mar}`;
     if (Number.isFinite(message.headRoll)) showHead(message);
-    if (!document.hasFocus() || document.hidden || !message.valid) {
+    // 보정 중에는 페이지 초점을 따지지 않는다: 점이 화면에 보이기만 하면 되고,
+    // Linux에서는 팝업을 열고 닫는 것만으로 초점이 오락가락해서 표본이 빠졌다
+    const unfocused = !calibration && !document.hasFocus();
+    if (unfocused || document.hidden || !message.valid) {
       invalidate(); hideCursor();
       status(!message.valid ? (message.error || '얼굴을 찾는 중… 카메라를 바라보세요.') : '페이지로 돌아오면 계속합니다.');
       return;

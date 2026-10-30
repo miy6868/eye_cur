@@ -161,6 +161,8 @@ test('restricted tabs and external apps pause; returning resumes without camera 
   await h.sockets[0].receive({type: 'frame'});
   assert.equal(h.sent.length, count);
   await h.activate(2);
+  // 보정을 마친 뒤에만 다른 앱에서 멈춘다(보정 중에는 초점과 상관없다)
+  await h.message({type: 'calibrated', context: h.current().context, model: {degree: 1}, layout: 'fixed'}, {tab: {id: 2}});
   await h.focus(false);
   const paused = h.sent.length;
   await h.sockets[0].receive({type: 'frame'});
@@ -230,9 +232,31 @@ test('popup recalibrate works after opening the popup dropped window focus (Linu
   await h.message({type: 'calibrated', context: h.current().context, model: {degree: 1}, layout: 'fixed'}, {tab: {id: 1}});
   await h.focus(false); // 팝업을 열면 창 초점이 NONE이 되어 페이지가 떼어진다
   const starts = h.sent.filter(m => m.type === 'start').length;
+  // 초점이 없어도 보정은 바로 붙어서 시작한다
   assert.equal((await h.message({type: 'recalibrate', tabId: 1})).ok, true);
-  await h.focus(true); // 팝업이 닫혀 초점이 돌아오면 저장된 보정 없이 다시 붙는다
   assert.equal(h.sent.filter(m => m.type === 'start').length, starts + 1);
+  assert.equal(h.current().calibration, null);
+  // 팝업이 닫혀 초점이 돌아와도 같은 탭이라 보정을 처음부터 다시 하지 않는다
+  await h.focus(true);
+  assert.equal(h.sent.filter(m => m.type === 'start').length, starts + 1);
+});
+
+test('calibration ignores window focus: it keeps going when focus leaves Chrome', async () => {
+  const h = harness(); await h.message({type: 'start', tabId: 1, token: 'test'}); h.sockets[0].open();
+  const context = h.current().context;
+  await h.focus(false);
+  // 떼어 내지 않았으므로 프레임이 그대로 페이지로 간다
+  assert.equal(h.sent.filter(m => m.type === 'suspend').length, 0);
+  await h.sockets[0].receive({type: 'frame'});
+  assert.equal(h.sent.at(-1).type, 'frame');
+  assert.equal(h.sent.at(-1).context, context);
+});
+
+test('starting without a saved calibration attaches even when the window has no focus', async () => {
+  const h = harness();
+  await h.focus(false); // 리눅스에서 팝업이 열려 있는 상태
+  await h.message({type: 'start', tabId: 1, token: 'test'});
+  assert.equal(h.current().tabId, 1);
   assert.equal(h.current().calibration, null);
 });
 
