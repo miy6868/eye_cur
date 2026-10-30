@@ -164,8 +164,12 @@
   }
   function calibrate(frame, now) {
     if (calibration.shownAt === null) {
-      // 카메라가 늦게 켜지거나 팝업이 떠 있어도 시간이 먼저 흐르지 않도록 첫 시선 결과에서 세기 시작한다
-      if (!Array.isArray(frame.gaze)) return;
+      // 카메라가 늦게 켜져도 시간이 먼저 흐르지 않도록 첫 시선 결과에서 세기 시작한다
+      if (!Array.isArray(frame.gaze)) {
+        // 얼굴은 찾았지만 아직 시선 값이 없다: 처음 0.5초쯤은 눈 뜬 상태를 배우는 중이라 시선을 계산하지 않는다
+        if (frame.eyesReady === false) progress('눈 뜬 상태를 배우는 중… 화면을 편하게 바라보세요');
+        return;
+      }
       if (calibration.startAt === null) calibration.startAt = now + START_DELAY_MS;
       if (now < calibration.startAt) {
         const seconds = Math.ceil((calibration.startAt - now) / 1000);
@@ -327,7 +331,7 @@
     target.hidden = false;
   }
   function click(item) {
-    if (!document.hasFocus() || document.hidden || !GazeDOM.unchanged(item)) {
+    if (document.hidden || !GazeDOM.unchanged(item)) {
       invalidate(); status('대상이 바뀌어 클릭을 취소했습니다.'); return;
     }
     const element = item.element;
@@ -351,9 +355,14 @@
     const mar = Number.isFinite(message.mar) ? message.mar.toFixed(2) : '-';
     shadow.querySelector('#mouth').textContent = `입 ${message.mouthOpen ? '벌림' : '다뭄'} · MAR ${mar}`;
     if (Number.isFinite(message.headRoll)) showHead(message);
-    if (!document.hasFocus() || document.hidden || !message.valid) {
+    // 키보드 초점(document.hasFocus)이 아니라 화면에 보이는지로 멈춘다. 시선은 화면만 보이면 되고,
+    // Linux(Wayland)에서는 팝업을 닫은 뒤 창에 초점이 있어도 페이지가 초점이 없다고 나와 보정 표본이 버려졌다
+    if (document.hidden || !message.valid) {
       invalidate(); hideCursor();
-      status(!message.valid ? (message.error || '얼굴을 찾는 중… 카메라를 바라보세요.') : '페이지로 돌아오면 계속합니다.');
+      const reason = !message.valid ? (message.error || '얼굴을 찾는 중… 카메라를 바라보세요.') : '페이지로 돌아오면 계속합니다.';
+      status(reason);
+      // 보정 화면에도 무엇을 기다리는지 보여 준다 ('카메라 연결 대기 중'에 멈춰 보이지 않게)
+      if (calibration && !calibration.result) progress(reason);
       return;
     }
     if (calibration?.result) return; // '그래도 사용' 버튼을 기다리는 중
@@ -500,7 +509,7 @@
     if (message.type === 'frame') frame(message);
     if (message.type === 'selection' && pending?.requestId === message.requestId) {
       const request = pending; pending = null;
-      if (clicker.active || !document.hasFocus() || performance.now() - lastFrame > 400) return;
+      if (clicker.active || document.hidden || performance.now() - lastFrame > 400) return;
       const item = request.items.find(c => c.id === message.id);
       if (!item || !smooth || Math.hypot(...smooth.map((v, k) => v - request.gaze[k])) > 80 ||
           !GazeDOM.unchanged(item)) {
@@ -530,5 +539,4 @@
   });
   document.addEventListener('visibilitychange', () => { if (running && document.hidden) { invalidate(); hideCursor(); } });
   window.addEventListener('scroll', () => { if (running) invalidate(); }, true);
-  window.addEventListener('blur', () => { if (running) invalidate(); });
 })();
