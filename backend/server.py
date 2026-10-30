@@ -30,8 +30,9 @@ active = False
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "model": "GazeTR-Hybrid", "device": "cpu", "active": active,
-            "weights": (ROOT / "models/GazeTR-H-ETH.pt").exists(),
+    from backend.tracker import model_path
+    return {"ok": True, "model": "UniGaze-B", "device": "cpu", "active": active,
+            "weights": model_path().exists(),
             # 확장 팝업이 시작할 때 읽는다. start.sh가 0으로 바꾸면 창을 줄이지 않는다
             "shrinkWindow": os.getenv("SHRINK_WINDOW", "1") != "0"}
 

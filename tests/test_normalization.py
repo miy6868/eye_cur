@@ -5,7 +5,7 @@ from pathlib import Path
 os.environ.setdefault('MPLCONFIGDIR', str(Path(__file__).resolve().parents[1] / '.cache/matplotlib'))
 import cv2
 import numpy as np
-from backend.tracker import FACE_3D, FACE_IDS, face_warp, iris_offset
+from backend.tracker import FACE_3D, FACE_IDS, face_tensor, face_warp, iris_offset
 
 
 class NormalizationTests(unittest.TestCase):
@@ -64,3 +64,16 @@ class NormalizationTests(unittest.TestCase):
 
 
 if __name__ == '__main__': unittest.main()
+
+
+class UniGazeInputTests(unittest.TestCase):
+    def test_face_tensor_is_rgb_with_imagenet_normalization(self):
+        face = np.zeros((224, 224, 3), dtype=np.uint8)
+        face[..., 0] = 255  # OpenCV BGR 순서라 0번 채널은 파랑
+        tensor = face_tensor(face)
+        self.assertEqual(tensor.shape, (1, 3, 224, 224))
+        self.assertEqual(tensor.dtype, np.float32)
+        # RGB로 바꾸면 파랑은 마지막(2번) 채널: (1 - 0.406) / 0.225
+        self.assertAlmostEqual(float(tensor[0, 2, 0, 0]), (1 - .406) / .225, places=5)
+        # 빨강 채널은 0이었으므로 (0 - 0.485) / 0.229
+        self.assertAlmostEqual(float(tensor[0, 0, 0, 0]), -.485 / .229, places=5)

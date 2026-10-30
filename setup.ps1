@@ -17,6 +17,7 @@ if (-not $venvOk) {
     uv venv --clear --python 3.11 .venv
     if ($LASTEXITCODE -ne 0) { throw '가상환경 생성 실패' }
 }
+# torch는 설치 때 UniGaze를 ONNX로 바꾸는 데만 쓴다 (CPU 전용 휠)
 uv pip install --python .venv/Scripts/python.exe torch==2.7.1 --index-url https://download.pytorch.org/whl/cpu
 if ($LASTEXITCODE -ne 0) { throw 'CPU PyTorch 설치 실패' }
 uv pip install --python .venv/Scripts/python.exe -r requirements.txt

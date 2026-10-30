@@ -7,7 +7,6 @@ __pycache__/
 .env
 models/*
 !models/.gitkeep
-!models/GazeTR-H-ETH.pt
 runtime.json
 *.log
 logs/
