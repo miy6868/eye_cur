@@ -34,8 +34,7 @@
   const POINT_SETTLE_MS = 800;
   const POINT_COLLECT_MS = 800;
   const POINT_MIN_RECORDS = 3;    // 눈을 감아 표본이 이보다 적으면 조금 더 기다린다
-  const POINT_TIMEOUT_MS = 2100;  // 그래도 이 시간이 지나면 다음 점으로: 2초 + 18번 × 2.1초 = 39.8초라도 40초를 넘지 않는다
-  const START_DELAY_MS = 2000;    // 보정을 누르자마자 점을 보기는 어려워서, 첫 점을 보여 준 채 2초 세고 시작한다
+  const POINT_TIMEOUT_MS = 2100;  // 그래도 이 시간이 지나면 다음 점으로: 18번 × 2.1초라도 40초를 넘지 않는다
   // 저장된 보정이 어떤 시선 모델·방식으로 만들어졌는지 표시: 둘 중 하나라도 바뀌면 예전 보정은 이어 쓰지 않고 다시 보정한다
   // (GazeTR과 UniGaze는 같은 곳을 봐도 출력 각도가 달라서, 예전 보정 계수를 그대로 쓰면 엉뚱한 곳을 가리킨다)
   const CALIBRATION_METHOD = 'unigaze-points9';
@@ -44,9 +43,6 @@
   let selected = null, pending = null, requestNumber = 0, lastRequest = 0;
   let lastFrame = 0, history = [], timer, layout, lastStatus = '';
   let ids = new WeakMap(), idNumber = 0;
-  // 팝업의 '화면에 정보 표시'. 사이트를 방해하지 않도록 기본은 꺼짐.
-  // 켜야 왼쪽 아래 정보 상자가 보이고 단축키(F 필터, ESC 중지)가 동작한다
-  let showInfo = false;
 
   function send(message) { return chrome.runtime.sendMessage({...message, context: currentContext}).catch(() => {}); }
   function status(text) {
@@ -67,8 +63,8 @@
       status(message);
       shadow.querySelector('#veil').hidden = true;
       hideCursor();
-      // 중지 이유(서버 끊김 등)는 정보 표시를 꺼 두었어도 8초 동안 보여 준다
-      shadow.querySelector('#panel').hidden = false;
+      shadow.querySelector('#stop').hidden = true;
+      shadow.querySelector('#recalibrate').hidden = true;
       const notice = host;
       setTimeout(() => notice?.remove(), 8000);
       host = null; shadow = null;
@@ -89,8 +85,7 @@
     // 클릭 보정을 껐으면 예전에 저장된 오프셋도 쓰지 않는다
     if (model && !CLICK_DRIFT) delete model.offset;
     // step: 몇 번째 점인지(0~17), records: 지금 점에서 모은 기록, log: 서버에 남길 모든 기록
-    // startAt: 2초 세기가 끝나는 시각(첫 시선 결과가 오면 정한다)
-    calibration = model ? null : {startAt: null, shownAt: null, step: 0, records: [], log: [],
+    calibration = model ? null : {shownAt: null, step: 0, records: [], log: [],
       points: CALIBRATION_POINTS.map(target => ({target, medians: []}))};
     host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
@@ -100,18 +95,11 @@
       :host{all:initial}*{box-sizing:border-box}[hidden]{display:none!important}
       /* 보정 화면은 웹페이지처럼 밝게: 어두운 화면에서 보정하고 밝은 페이지에서 쓰면 얼굴 조명·동공 크기가 달라져 시선 값이 통째로 밀린다 */
       #veil{position:fixed;inset:0;background:#f6f7f9;pointer-events:auto}
-      #choices{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;gap:12px}
-      #choices button{padding:12px 22px;font:600 16px system-ui;border-radius:8px}
-      #use{background:#21dba0;color:#071b2a}
+      #use{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);padding:12px 22px;font:600 16px system-ui;background:#21dba0;color:#071b2a}
       #next{position:fixed;width:46px;height:46px;border:3px dashed #9ca3af;border-radius:50%;transform:translate(-50%,-50%)}
-      #dot{position:fixed;width:66px;height:66px;border:18px solid #21dba0;border-radius:50%;background:#111827;transform:translate(-50%,-50%)}
-      /* 작아지는 움직임은 크기를 바꾸는 전환으로 만든다(시간은 showPoint에서 POINT_SETTLE_MS로 정함) */
-      #dot.small{width:22px;height:22px;border-width:6px;transition-property:width,height,border-width;transition-timing-function:ease-out}
+      #dot{position:fixed;width:22px;height:22px;border:6px solid #21dba0;border-radius:50%;background:#111827;transform:translate(-50%,-50%)}
       #guide{position:fixed;top:30%;left:50%;transform:translate(-50%,-50%);font:16px/1.5 system-ui;color:#111827;text-align:center}
-      #guide p{margin:0}
-      #progress{margin-top:8px!important;font-weight:600;color:#4b5563}
-      /* 정보 상자는 보기만 한다: 마우스가 통과해서 아래 사이트를 그대로 누를 수 있다 */
-      #panel{position:fixed;bottom:14px;left:14px;max-width:520px;border:1px solid #ffffff24;background:#142236;color:#fff;border-radius:9px;padding:10px 14px;font:13px/1.5 system-ui;display:flex;flex-wrap:wrap;gap:12px;align-items:center;pointer-events:none}
+      #panel{position:fixed;bottom:14px;left:14px;max-width:520px;border:1px solid #ffffff24;background:#142236;color:#fff;border-radius:9px;padding:10px 14px;font:13px/1.5 system-ui;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
       button{pointer-events:auto;white-space:nowrap;border:0;border-radius:5px;padding:6px 9px;background:#33465e;color:#fff;cursor:pointer}
       /* 보정 중에는 안내(30%)와 정보 상자(70%)를 점 줄(10·50·90%) 사이에 두어 점을 가리지 않게 한다 */
       #panel.calibrating{top:70%;bottom:auto;left:50%;transform:translate(-50%,-50%);max-width:min(760px,90vw)}
@@ -121,20 +109,18 @@
       #graph{background:#0c1728;border-radius:4px}
       #cursor{position:fixed;width:12px;height:12px;border:2px solid #fff;border-radius:50%;background:#176cff;transform:translate(-50%,-50%)}
       #target{position:fixed;border:3px solid #21dba0;border-radius:5px;background:#21dba01a;box-shadow:0 0 0 2px #071b2a99}
-      /* 입을 벌리는 동안은 주황색: 정보 상자를 꺼 두어도 클릭이 진행 중인지 보인다 */
-      #target.arming{border-color:#f59e0b;background:#f59e0b2e}
       </style>
-      <div id="veil"><div id="guide"><p id="guide-text">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 2초 뒤 시작, 약 30초</p><p id="progress"></p></div><div id="next"></div><div id="dot"></div><div id="choices" hidden><button id="use">그래도 사용</button><button id="retry">다시 보정</button></div></div>
+      <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 약 30초</div><div id="next"></div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
-      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="drift"></span><span id="eyesize"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas></div>`;
+      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="drift"></span><span id="eyesize"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
+    shadow.querySelector('#stop').onclick = () => stop('중지됨');
+    shadow.querySelector('#recalibrate').onclick = () => send({type: 'recalibrate'});
     shadow.querySelector('#use').onclick = () => finishCalibration(calibration.result);
-    shadow.querySelector('#retry').onclick = () => send({type: 'recalibrate'});
     showFilterName();
-    applyInfo();
     shadow.querySelector('#panel').classList.toggle('calibrating', !!calibration);
-    if (calibration) { showPoint(null); status('9점 보정 · 카메라 연결 대기 중…'); progress('카메라 연결 대기 중…'); }
-    else { shadow.querySelector('#veil').hidden = true; status('저장된 보정으로 계속합니다 · 어긋나면 확장 아이콘의 다시 보정을 누르세요.'); showDrift(); }
+    if (calibration) { showPoint(null); status('9점 보정 · 카메라 연결 대기 중…'); }
+    else { shadow.querySelector('#veil').hidden = true; status('저장된 보정으로 계속합니다 · 어긋나면 다시 보정을 누르세요.'); showDrift(); }
     timer = setInterval(() => {
       if (!running) return;
       if (geometry() !== layout) { send({type: 'calibrationInvalid'}); start({context: currentContext}); return; }
@@ -154,13 +140,8 @@
     const [x, y] = CALIBRATION_POINTS[CALIBRATION_ORDER[calibration.step]];
     const dot = shadow.querySelector('#dot');
     dot.style.left = `${x * 100}vw`; dot.style.top = `${y * 100}vh`;
-    // 크게 나타나 작아지는 점이 눈을 끌어당긴다. 작아지는 0.8초가 눈이 옮겨 가는 시간(POINT_SETTLE_MS)이다.
-    // transform 애니메이션(scale)은 점을 따로 떼어 그리는 층을 만들었다 없애서, Hyprland(화면 배율 1.2)에서
-    // 시작 직후 화면이 깜빡이고 찢어졌다. 그래서 점의 크기(width·height)를 바꾸는 전환으로 만든다
-    dot.classList.remove('small');
-    dot.getBoundingClientRect(); // 큰 크기를 한 번 계산시켜야 다음 줄의 전환이 큰 크기에서부터 다시 시작한다
-    dot.style.transitionDuration = `${POINT_SETTLE_MS}ms`;
-    dot.classList.add('small');
+    // 크게 나타나 작아지는 점이 눈을 끌어당긴다. 작아지는 0.8초가 눈이 옮겨 가는 시간(POINT_SETTLE_MS)이다
+    dot.animate([{transform: 'translate(-50%,-50%) scale(3)'}, {transform: 'translate(-50%,-50%) scale(1)'}], POINT_SETTLE_MS);
     // 다음 점 자리를 회색 점선 원으로 미리 보여 준다: 처음 쓰는 사용자도 점이 어디로 갈지 안다
     // 같은 점을 한 번 더 볼 때(바퀴가 바뀔 때)는 원이 지금 점을 둘러싸서 "그대로 보라"는 뜻이 된다
     const next = CALIBRATION_ORDER[calibration.step + 1];
@@ -171,21 +152,9 @@
   }
   function calibrate(frame, now) {
     if (calibration.shownAt === null) {
-      // 카메라가 늦게 켜져도 시간이 먼저 흐르지 않도록 첫 시선 결과에서 세기 시작한다
-      if (!Array.isArray(frame.gaze)) {
-        // 얼굴은 찾았지만 아직 시선 값이 없다: 처음 0.5초쯤은 눈 뜬 상태를 배우는 중이라 시선을 계산하지 않는다
-        if (frame.eyesReady === false) progress('눈 뜬 상태를 배우는 중… 화면을 편하게 바라보세요');
-        return;
-      }
-      if (calibration.startAt === null) calibration.startAt = now + START_DELAY_MS;
-      if (now < calibration.startAt) {
-        const seconds = Math.ceil((calibration.startAt - now) / 1000);
-        progress(`${seconds}초 뒤 시작 · 왼쪽 위 초록 점을 바라보세요`);
-        status(`보정 준비 · ${seconds}초 뒤 시작`);
-        return;
-      }
-      // 점이 한 번 더 크게 나타났다 작아지며 시작을 알린다
-      showPoint(now);
+      // 카메라가 늦게 켜져도 첫 점 시간이 먼저 흐르지 않도록 첫 시선 결과에서 시계를 시작한다
+      if (!Array.isArray(frame.gaze)) return;
+      calibration.shownAt = now;
     }
     // record.time은 점이 나타난 뒤 촬영까지 걸린 시간. 눈이 아직 옮겨 가는 중인 앞부분은 버린다
     const record = gazeRecord(frame, now, calibration.shownAt);
@@ -194,7 +163,6 @@
       calibration.records.push(record);
     }
     status(`시선 보정 중 · ${calibration.step + 1}/${CALIBRATION_ORDER.length} · 점이 작아지면 가운데를 바라보세요`);
-    progress(`${calibration.step + 1} / ${CALIBRATION_ORDER.length}`);
     const elapsed = now - calibration.shownAt;
     const enough = elapsed >= POINT_SETTLE_MS + POINT_COLLECT_MS && calibration.records.length >= POINT_MIN_RECORDS;
     if (!enough && elapsed < POINT_TIMEOUT_MS) return;
@@ -231,15 +199,6 @@
     if (openness.length) model.eyeRange = eyeRange(openness);
     judge();
   }
-  // 보정 화면 안내 아래에 진행 상황을 쓴다: 정보 상자를 꺼 두어도 몇 번째 점인지 보인다
-  function progress(text) {
-    shadow.querySelector('#progress').textContent = text;
-  }
-  // 정보 표시를 켜고 끈 상태를 화면에 반영한다
-  function applyInfo() {
-    if (!shadow) return;
-    shadow.querySelector('#panel').hidden = !showInfo;
-  }
   // 기록에 머리 상태 [기울기, 거리, 끄덕임, 돌림]와 홍채 위치를 붙인다: 사용 중 비교와 기록 분석용
   function annotate(record, frame) {
     if (Number.isFinite(frame.headRoll)) record.head = [frame.headRoll, frame.headDistance, frame.headPitch, frame.headYaw];
@@ -260,10 +219,9 @@
       // 학습은 끝났으니 버리지 않고, 오차를 보여 준 뒤 사용자가 계속할지 고르게 한다
       calibration.result = {rms, pixelRms};
       const message = `점 오차 약 ${pixelRms}px로 기준보다 큽니다. 그래도 사용하거나 다시 보정하세요.`;
-      shadow.querySelector('#guide-text').textContent = message;
-      progress('');
+      shadow.querySelector('#guide').textContent = message;
       shadow.querySelector('#dot').hidden = true;
-      shadow.querySelector('#choices').hidden = false;
+      shadow.querySelector('#use').hidden = false;
       status(message);
       return;
     }
@@ -272,8 +230,6 @@
   function finishCalibration({rms, pixelRms}) {
     // 검증 오차만큼 후보 탐색 반경도 넓어지도록 모델 오차에 반영한다
     model.error = Math.max(model.error, rms);
-    // 팝업에서 보정 결과를 보여 주도록 픽셀 오차를 모델과 함께 저장한다
-    model.pixelError = pixelRms;
     calibration = null; shadow.querySelector('#veil').hidden = true;
     shadow.querySelector('#panel').classList.remove('calibrating');
     send({type: 'calibrated', model, layout});
@@ -283,13 +239,8 @@
   }
   function calibrationFailed(message) {
     running = false; clearInterval(timer); invalidate();
-    shadow.querySelector('#guide-text').textContent = message;
-    progress('');
+    shadow.querySelector('#guide').textContent = message;
     shadow.querySelector('#dot').hidden = true;
-    shadow.querySelector('#next').hidden = true;
-    // 실패 화면에서 바로 다시 할 수 있게 다시 보정 버튼만 보여 준다
-    shadow.querySelector('#choices').hidden = false;
-    shadow.querySelector('#use').hidden = true;
     status(message);
     // Keep the session/camera alive so the retry button can start calibration again.
     send({type: 'calibrationInvalid'});
@@ -332,12 +283,11 @@
     const target = shadow.querySelector('#target');
     if (!item) { target.hidden = true; return; }
     const [x, y, w, h] = item.rect;
-    target.classList.toggle('arming', clicker.active);
     Object.assign(target.style, {left: `${x - 3}px`, top: `${y - 3}px`, width: `${w + 6}px`, height: `${h + 6}px`});
     target.hidden = false;
   }
   function click(item) {
-    if (document.hidden || !GazeDOM.unchanged(item)) {
+    if (!document.hasFocus() || document.hidden || !GazeDOM.unchanged(item)) {
       invalidate(); status('대상이 바뀌어 클릭을 취소했습니다.'); return;
     }
     const element = item.element;
@@ -361,14 +311,9 @@
     const mar = Number.isFinite(message.mar) ? message.mar.toFixed(2) : '-';
     shadow.querySelector('#mouth').textContent = `입 ${message.mouthOpen ? '벌림' : '다뭄'} · MAR ${mar}`;
     if (Number.isFinite(message.headRoll)) showHead(message);
-    // 키보드 초점(document.hasFocus)이 아니라 화면에 보이는지로 멈춘다. 시선은 화면만 보이면 되고,
-    // Linux(Wayland)에서는 팝업을 닫은 뒤 창에 초점이 있어도 페이지가 초점이 없다고 나와 보정 표본이 버려졌다
-    if (document.hidden || !message.valid) {
+    if (!document.hasFocus() || document.hidden || !message.valid) {
       invalidate(); hideCursor();
-      const reason = !message.valid ? (message.error || '얼굴을 찾는 중… 카메라를 바라보세요.') : '페이지로 돌아오면 계속합니다.';
-      status(reason);
-      // 보정 화면에도 무엇을 기다리는지 보여 준다 ('카메라 연결 대기 중'에 멈춰 보이지 않게)
-      if (calibration && !calibration.result) progress(reason);
+      status(!message.valid ? (message.error || '얼굴을 찾는 중… 카메라를 바라보세요.') : '페이지로 돌아오면 계속합니다.');
       return;
     }
     if (calibration?.result) return; // '그래도 사용' 버튼을 기다리는 중
@@ -411,7 +356,7 @@
     const xy = [point[0] * innerWidth, point[1] * innerHeight];
     // 필터를 끈 상태면 원본 점을 그대로 쓴다. 대상 선택에는 이 필터 결과(smooth)를 쓴다
     smooth = filter ? filter.update(xy) : xy;
-    showDot('#raw', xy); // 빨간 원본 점: 필터 전 시선. 정보 표시와 상관없이 늘 보여 준다
+    showDot('#raw', xy);
     showDot('#cursor', smooth);
     trail.push({raw: xy, filtered: smooth, time: now});
     trail = trail.filter(p => now - p.time < GRAPH_MS);
@@ -515,7 +460,7 @@
     if (message.type === 'frame') frame(message);
     if (message.type === 'selection' && pending?.requestId === message.requestId) {
       const request = pending; pending = null;
-      if (clicker.active || document.hidden || performance.now() - lastFrame > 400) return;
+      if (clicker.active || !document.hasFocus() || performance.now() - lastFrame > 400) return;
       const item = request.items.find(c => c.id === message.id);
       if (!item || !smooth || Math.hypot(...smooth.map((v, k) => v - request.gaze[k])) > 80 ||
           !GazeDOM.unchanged(item)) {
@@ -525,24 +470,17 @@
       status(`선택: ${item.name || item.role} · ${CLICK_HINT}.`);
     }
   });
-  // 단축키는 정보 표시를 켰을 때만: 꺼 두면 사이트의 ESC(창 닫기)·F 키를 가로채지 않는다
-  document.addEventListener('keydown', event => { if (host && showInfo && event.key === 'Escape') { event.preventDefault(); stop('ESC로 중지됨'); } }, true);
+  document.addEventListener('keydown', event => { if (host && event.key === 'Escape') { event.preventDefault(); stop('ESC로 중지됨'); } }, true);
   document.addEventListener('keydown', event => {
     // event.code는 한글 입력 상태에서도 'KeyF'. Ctrl+F(찾기) 같은 단축키는 건드리지 않는다
-    if (!running || !showInfo || event.code !== 'KeyF' || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!running || event.code !== 'KeyF' || event.ctrlKey || event.metaKey || event.altKey) return;
     const target = event.target;
     // 입력칸에 타이핑 중이면 F는 글자로 남겨 둔다
     if (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
     event.preventDefault();
     nextFilter();
   }, true);
-  // 팝업에서 바꾸면 storage가 바뀌고, 열려 있는 탭에도 바로 적용된다
-  chrome.storage.local.get('showInfo').then(data => { showInfo = !!data.showInfo; applyInfo(); });
-  chrome.storage.onChanged.addListener(changes => {
-    if (!changes.showInfo) return;
-    showInfo = !!changes.showInfo.newValue;
-    applyInfo();
-  });
   document.addEventListener('visibilitychange', () => { if (running && document.hidden) { invalidate(); hideCursor(); } });
   window.addEventListener('scroll', () => { if (running) invalidate(); }, true);
+  window.addEventListener('blur', () => { if (running) invalidate(); });
 })();
