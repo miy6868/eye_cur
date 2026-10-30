@@ -20,9 +20,9 @@ IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
 def model_path():
-    # .env의 GAZE_INT8=1: 숫자를 8비트로 줄인 모델. 이 노트북에서 2배 빠르지만(104→57ms)
-    # 프레임마다 흔들림이 20~50% 커져서, 느린 PC에서만 쓴다
-    name = "unigaze_b16_int8.onnx" if os.getenv("GAZE_INT8") == "1" else "unigaze_b16.onnx"
+    # 기본은 숫자를 8비트로 줄인 모델: 이 노트북에서 2배 빠르다(104→57ms).
+    # 흔들림은 조금 커지지만 실제로 써 보니 크지 않았다. .env의 GAZE_INT8=0이면 원래 크기(fp32) 모델을 쓴다
+    name = "unigaze_b16.onnx" if os.getenv("GAZE_INT8", "1") == "0" else "unigaze_b16_int8.onnx"
     return ROOT / "models" / name
 
 

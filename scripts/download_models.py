@@ -39,7 +39,7 @@ if not fp32.exists():
                       output_names=["gaze"], opset_version=17, dynamo=False)
 
 if not int8.exists():
-    # 가중치를 8비트 정수로 줄인 모델: 파일 343→87MB, 계산 약 2배 빠름. .env의 GAZE_INT8=1일 때만 쓴다
+    # 가중치를 8비트 정수로 줄인 모델: 파일 343→87MB, 계산 약 2배 빠름. 서버는 기본으로 이것을 쓴다(GAZE_INT8=0이면 fp32)
     quantize_dynamic(str(fp32), str(int8), weight_type=QuantType.QInt8)
 
 print(f"Model ready: {fp32.name}, {int8.name}")

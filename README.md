@@ -6,7 +6,7 @@ Windows 또는 Linux + Chrome, 단일 모니터에서 사용하는 개인·연�
 
 ## 실행
 
-1. 프로젝트 폴더를 `C:\eye_cur`처럼 **영어로만 된 경로**에 둡니다. 한글 폴더·한글 사용자 이름·OneDrive `바탕 화면` 아래에서는 MediaPipe가 모델 파일을 열지 못합니다. 그 폴더에서 일반 PowerShell 창(ISE·우클릭 실행 아님)을 열고 `powershell -ExecutionPolicy Bypass -File .\setup.ps1`을 실행합니다. 마지막의 모델 로딩 점검(`PASS`)까지 나와야 설치 완료입니다. `DLL load failed`가 나오면 [VC++ 재배포 패키지](https://aka.ms/vs/17/release/vc_redist.x64.exe)를 설치합니다. 점검의 `threads=4` 시간이 150ms를 넘으면 `.env`에 `GAZE_INT8=1`을 넣어 8비트 모델을 씁니다(아래 "시선 모델 속도" 참고). 폴더를 옮겼다면 setup을 다시 실행합니다. 이미 설치를 완료했다면 생략합니다.
+1. 프로젝트 폴더를 `C:\eye_cur`처럼 **영어로만 된 경로**에 둡니다. 한글 폴더·한글 사용자 이름·OneDrive `바탕 화면` 아래에서는 MediaPipe가 모델 파일을 열지 못합니다. 그 폴더에서 일반 PowerShell 창(ISE·우클릭 실행 아님)을 열고 `powershell -ExecutionPolicy Bypass -File .\setup.ps1`을 실행합니다. 마지막의 모델 로딩 점검(`PASS`)까지 나와야 설치 완료입니다. `DLL load failed`가 나오면 [VC++ 재배포 패키지](https://aka.ms/vs/17/release/vc_redist.x64.exe)를 설치합니다. 점검은 기본인 8비트(int8) 모델로 속도를 잽니다. `threads=4` 시간이 충분히 짧고(약 50ms 이하) 정확도를 조금 더 원하면 `.env`에 `GAZE_INT8=0`을 넣어 원래 크기(fp32) 모델을 씁니다(아래 "시선 모델 속도" 참고). 폴더를 옮겼다면 setup을 다시 실행합니다. 이미 설치를 완료했다면 생략합니다.
 2. (선택, USE_JEV) 기본값은 API 키 없이 동작합니다. Jev를 쓰려면 `extension/content.js`의 `USE_JEV`를 `true`로 바꾸고 `.env`의 `TYPESAFE_API_KEY=` 뒤에 [TypeSafe 콘솔](https://console.typesafe.ai/)에서 발급한 키를 넣습니다. 키는 확장에 입력하지 않습니다.
 3. `powershell -ExecutionPolicy Bypass -File .\start.ps1` 실행. 콘솔에 표시되는 **연결 토큰**을 복사합니다(`runtime.json`에도 있습니다). Windows 10 콘솔에서 글자를 마우스로 선택한 채 두면 서버가 멈추므로, 복사 후 `Esc`를 누릅니다.
 4. Chrome에서 `chrome://extensions` → 개발자 모드 → **압축해제된 확장 프로그램을 로드합니다** → 이 프로젝트의 `extension` 폴더 선택.
@@ -33,7 +33,7 @@ PowerShell 실행 정책 때문에 스크립트를 열 수 없다면 해당 실�
 ## 동작과 제한
 
 - Python 앱이 웹캠·얼굴 랜드마크·UniGaze를 처리합니다. PyTorch(CPU 휠)는 설치 때 UniGaze를 ONNX로 바꾸는 데만 쓰고, 서버는 ONNX Runtime만 씁니다. `vendor/unigaze.py`는 공식 코드(timm 0.3.2 필요, 지금 torch와 맞지 않음)와 같은 계산을 torch만으로 다시 적은 것이며, 공식 코드와 출력 차이가 3×10⁻⁷ 이하인지 확인했습니다.
-- 시선 모델 속도(Ryzen 7 5825U, 얼굴 한 장): 이전 GazeTR 27ms · UniGaze torch 170ms · **ONNX Runtime fp32 104ms(기본)** · ONNX Runtime int8 57ms(스레드 4개). int8은 출력이 fp32와 최대 0.035rad(약 2°) 다르고, 같은 얼굴에 카메라 잡음만 넣었을 때 흔들림이 20~50% 커져서 기본은 fp32입니다. 느린 PC에서는 `.env`에 `GAZE_INT8=1`. fp16은 일반 CPU에 전용 계산기가 없어 빨라지지 않아 쓰지 않았습니다. 카메라는 초당 30장이지만 추론은 이전 추론이 끝나야 다음 장을 받으므로 저절로 2~3장마다 한 번 추론하고, 그 사이는 확장의 응시 고정 필터가 메웁니다.
+- 시선 모델 속도(Ryzen 7 5825U, 얼굴 한 장): 이전 GazeTR 27ms · UniGaze torch 170ms · ONNX Runtime fp32 104ms · **ONNX Runtime int8 57ms(기본)**(스레드 4개). int8은 출력이 fp32와 최대 0.035rad(약 2°) 다르고, 같은 얼굴에 카메라 잡음만 넣었을 때 흔들림이 20~50% 커집니다. 하지만 실제로 써 보니 흔들림이 크지 않고 속도가 더 중요해서 int8을 기본으로 합니다. 보정은 int8 출력으로 하므로 고정된 차이는 보정이 흡수합니다. fp32를 쓰려면 `.env`에 `GAZE_INT8=0`. fp16은 일반 CPU에 전용 계산기가 없어 빨라지지 않아 쓰지 않았습니다. 카메라는 초당 30장이지만 추론은 이전 추론이 끝나야 다음 장을 받으므로 저절로 2~3장마다 한 번 추론하고, 그 사이는 확장의 응시 고정 필터가 메웁니다.
 - ETH-XGaze 공식 3D 얼굴 템플릿의 눈꼬리 4점과 코 양옆 2점을 사용해 얼굴 영상을 224×224로 정규화합니다. 눈 중심과 코 중심을 동일한 비중으로 사용합니다. UniGaze 공식 코드에 맞춰 정규화 얼굴(초점 960, 거리 600, 224×224)을 **RGB로 바꾸고 0~1로 나눈 뒤 ImageNet 평균·표준편차로 정규화**합니다(`backend/tracker.py`의 `face_tensor`). UniGaze 출력은 [pitch(위아래), yaw(좌우)] 순서라서, 예전처럼 [좌우, 위아래]로 바꿔 확장에 보냅니다. 같은 얼굴을 좌우로 뒤집어 넣으면 yaw만 부호가 바뀌는 것으로 순서를 확인했습니다.
 - 카메라는 별도 스레드에서 계속 읽고 추론에는 최신 프레임만 사용합니다. 보정 점이 바뀌기 전에 촬영한 프레임, 깜빡임 직후 표본, 일시적인 이상치를 제외합니다. 보정 통과 기준을 낮추지는 않았습니다.
 - 기본 카메라 내부 파라미터는 추정값입니다. 화면 보정은 시선→화면 좌표를 맞추는 과정이며 정밀 카메라 보정을 대신하지 않습니다. 정확도는 실제 사용자·카메라에서 확인해야 합니다. `CAMERA_INTRINSICS`에 `camera_matrix`와 `dist_coefficients`가 있는 JSON 경로를 지정할 수 있습니다.
