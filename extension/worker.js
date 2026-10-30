@@ -189,7 +189,10 @@ async function start(tabId, token, bounds) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
-  if (message.type === 'getStatus') { reply({status, enabled}); return; }
+  if (message.type === 'getStatus') {
+    // 팝업이 보여 줄 것: 상태 문구, 실행 중인지, 마지막 보정의 점 오차(px)
+    reply({status, enabled, calibrationError: savedCalibration?.model?.pixelError ?? null}); return;
+  }
   if (message.type === 'start' && !sender.tab) {
     start(message.tabId, message.token, message.bounds).then(() => reply({ok: true})).catch(error => reply({error: error.message}));
     return true;
@@ -198,15 +201,17 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message.type === 'stop' && (!sender.tab || current)) {
     stop(message.reason).then(() => reply({ok: true})); return true;
   }
+  // 다시 보정: 팝업 버튼(sender.tab 없음)이나 보정 화면의 버튼에서 온다
+  if (message.type === 'recalibrate' && (!sender.tab || current)) {
+    if (!enabled || activeTab === null) { reply({error: '실행 중인 웹페이지 탭에서 눌러 주세요.'}); return; }
+    forgetCalibration(); attach(activeTab).then(() => reply({ok: true})); return true;
+  }
   if (!current || !enabled) return;
   if (message.type === 'calibrated') {
     savedCalibration = {model: message.model, layout: message.layout};
     // 메모리는 ESC 중지·브라우저 종료 때 사라지므로 다음 세션을 위해 저장소에도 남긴다
     chrome.storage.local.set({calibration: savedCalibration});
     reply({ok: true}); return;
-  }
-  if (message.type === 'recalibrate') {
-    forgetCalibration(); attach(activeTab).then(() => reply({ok: true})); return true;
   }
   if (message.type === 'calibrationInvalid') { forgetCalibration(); return; }
   if (message.type === 'choose' && connection?.readyState === WebSocket.OPEN) {
