@@ -34,7 +34,8 @@
   const POINT_SETTLE_MS = 800;
   const POINT_COLLECT_MS = 800;
   const POINT_MIN_RECORDS = 3;    // 눈을 감아 표본이 이보다 적으면 조금 더 기다린다
-  const POINT_TIMEOUT_MS = 2100;  // 그래도 이 시간이 지나면 다음 점으로: 18번 × 2.1초라도 40초를 넘지 않는다
+  const POINT_TIMEOUT_MS = 2100;  // 그래도 이 시간이 지나면 다음 점으로: 2초 + 18번 × 2.1초 = 39.8초라도 40초를 넘지 않는다
+  const START_DELAY_MS = 2000;    // 보정을 누르자마자 점을 보기는 어려워서, 첫 점을 보여 준 채 2초 세고 시작한다
   // 저장된 보정이 어떤 시선 모델·방식으로 만들어졌는지 표시: 둘 중 하나라도 바뀌면 예전 보정은 이어 쓰지 않고 다시 보정한다
   // (GazeTR과 UniGaze는 같은 곳을 봐도 출력 각도가 달라서, 예전 보정 계수를 그대로 쓰면 엉뚱한 곳을 가리킨다)
   const CALIBRATION_METHOD = 'unigaze-points9';
@@ -88,7 +89,8 @@
     // 클릭 보정을 껐으면 예전에 저장된 오프셋도 쓰지 않는다
     if (model && !CLICK_DRIFT) delete model.offset;
     // step: 몇 번째 점인지(0~17), records: 지금 점에서 모은 기록, log: 서버에 남길 모든 기록
-    calibration = model ? null : {shownAt: null, step: 0, records: [], log: [],
+    // startAt: 2초 세기가 끝나는 시각(첫 시선 결과가 오면 정한다)
+    calibration = model ? null : {startAt: null, shownAt: null, step: 0, records: [], log: [],
       points: CALIBRATION_POINTS.map(target => ({target, medians: []}))};
     host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
@@ -120,7 +122,7 @@
       /* 입을 벌리는 동안은 주황색: 정보 상자를 꺼 두어도 클릭이 진행 중인지 보인다 */
       #target.arming{border-color:#f59e0b;background:#f59e0b2e}
       </style>
-      <div id="veil"><div id="guide"><p id="guide-text">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 약 30초</p><p id="progress"></p></div><div id="next"></div><div id="dot"></div><div id="choices" hidden><button id="use">그래도 사용</button><button id="retry">다시 보정</button></div></div>
+      <div id="veil"><div id="guide"><p id="guide-text">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 2초 뒤 시작, 약 30초</p><p id="progress"></p></div><div id="next"></div><div id="dot"></div><div id="choices" hidden><button id="use">그래도 사용</button><button id="retry">다시 보정</button></div></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
       <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="drift"></span><span id="eyesize"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas></div>`;
     document.documentElement.appendChild(host);
@@ -162,9 +164,17 @@
   }
   function calibrate(frame, now) {
     if (calibration.shownAt === null) {
-      // 카메라가 늦게 켜져도 첫 점 시간이 먼저 흐르지 않도록 첫 시선 결과에서 시계를 시작한다
+      // 카메라가 늦게 켜지거나 팝업이 떠 있어도 시간이 먼저 흐르지 않도록 첫 시선 결과에서 세기 시작한다
       if (!Array.isArray(frame.gaze)) return;
-      calibration.shownAt = now;
+      if (calibration.startAt === null) calibration.startAt = now + START_DELAY_MS;
+      if (now < calibration.startAt) {
+        const seconds = Math.ceil((calibration.startAt - now) / 1000);
+        progress(`${seconds}초 뒤 시작 · 왼쪽 위 초록 점을 바라보세요`);
+        status(`보정 준비 · ${seconds}초 뒤 시작`);
+        return;
+      }
+      // 점이 한 번 더 크게 나타났다 작아지며 시작을 알린다
+      showPoint(now);
     }
     // record.time은 점이 나타난 뒤 촬영까지 걸린 시간. 눈이 아직 옮겨 가는 중인 앞부분은 버린다
     const record = gazeRecord(frame, now, calibration.shownAt);
