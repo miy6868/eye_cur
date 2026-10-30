@@ -3,8 +3,10 @@ from collections import deque
 import math
 
 # 입 벌림 비율(MAR) 문턱값. 두 값을 다르게 둬야 경계 근처에서 상태가 왔다 갔다 하지 않는다
-MOUTH_OPEN_MAR = 0.30    # 이보다 커지면 '벌림'
-MOUTH_CLOSED_MAR = 0.20  # 이보다 작아지면 '다뭄'
+# 처음엔 0.30/0.20이었는데 입을 꽤 크게 벌려야 해서 낮췄다. 말할 때 잠깐 벌어지는 입은
+# 확장의 MouthClick이 0.5초보다 짧은 벌림을 무시해서 걸러진다
+MOUTH_OPEN_MAR = 0.20    # 이보다 커지면 '벌림'
+MOUTH_CLOSED_MAR = 0.12  # 이보다 작아지면 '다뭄'
 # MediaPipe FaceMesh 번호: 13 = 윗입술 안쪽 가운데, 14 = 아랫입술 안쪽 가운데, 61·291 = 양쪽 입꼬리
 LIP_TOP, LIP_BOTTOM, MOUTH_LEFT, MOUTH_RIGHT = 13, 14, 61, 291
 
@@ -52,7 +54,7 @@ class MouthState:
         self.open = False
 
     def update(self, mar):
-        # 두 문턱값 사이(0.20~0.30)에서는 이전 상태를 그대로 유지한다
+        # 두 문턱값 사이(0.12~0.20)에서는 이전 상태를 그대로 유지한다
         if self.open and mar < MOUTH_CLOSED_MAR:
             self.open = False
         elif not self.open and mar > MOUTH_OPEN_MAR:
