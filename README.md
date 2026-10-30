@@ -6,7 +6,7 @@ Windows 또는 Linux + Chrome, 단일 모니터에서 사용하는 개인·연�
 
 ## 실행
 
-1. 프로젝트 폴더를 `C:\eye_cur`처럼 **영어로만 된 경로**에 둡니다. 한글 폴더·한글 사용자 이름·OneDrive `바탕 화면` 아래에서는 MediaPipe가 모델 파일을 열지 못합니다. 그 폴더에서 일반 PowerShell 창(ISE·우클릭 실행 아님)을 열고 `powershell -ExecutionPolicy Bypass -File .\setup.ps1`을 실행합니다. 마지막의 모델 로딩 점검(`PASS`)까지 나와야 설치 완료입니다. `DLL load failed`가 나오면 [VC++ 재배포 패키지](https://aka.ms/vs/17/release/vc_redist.x64.exe)를 설치합니다. 점검은 기본인 8비트(int8) 모델로 속도를 잽니다. `threads=4` 시간이 충분히 짧고(약 50ms 이하) 정확도를 조금 더 원하면 `.env`에 `GAZE_INT8=0`을 넣어 원래 크기(fp32) 모델을 씁니다(아래 "시선 모델 속도" 참고). 폴더를 옮겼다면 setup을 다시 실행합니다. 이미 설치를 완료했다면 생략합니다.
+1. 프로젝트 폴더를 `C:\eye_cur`처럼 **영어로만 된 경로**에 둡니다. 한글 폴더·한글 사용자 이름·OneDrive `바탕 화면` 아래에서는 MediaPipe가 모델 파일을 열지 못합니다. 그 폴더에서 일반 PowerShell 창(ISE·우클릭 실행 아님)을 열고 `powershell -ExecutionPolicy Bypass -File .\setup.ps1`을 실행합니다. 마지막의 모델 로딩 점검(`PASS`)까지 나와야 설치 완료입니다. `DLL load failed`가 나오면 [VC++ 재배포 패키지](https://aka.ms/vs/17/release/vc_redist.x64.exe)를 설치합니다. 점검은 기본인 8비트(int8) 모델로 속도를 잽니다. `Server threads`로 실제 쓸 스레드 수가, 그 줄 위에 그 스레드 수의 시간이 나옵니다. 시간이 충분히 짧고(약 50ms 이하) 정확도를 조금 더 원하면 `.env`에 `GAZE_INT8=0`을 넣어 원래 크기(fp32) 모델을 씁니다(아래 "시선 모델 속도" 참고). 폴더를 옮겼다면 setup을 다시 실행합니다. 이미 설치를 완료했다면 생략합니다.
 2. (선택, USE_JEV) 기본값은 API 키 없이 동작합니다. Jev를 쓰려면 `extension/content.js`의 `USE_JEV`를 `true`로 바꾸고 `.env`의 `TYPESAFE_API_KEY=` 뒤에 [TypeSafe 콘솔](https://console.typesafe.ai/)에서 발급한 키를 넣습니다. 키는 확장에 입력하지 않습니다.
 3. `powershell -ExecutionPolicy Bypass -File .\start.ps1` 실행. 콘솔에 표시되는 **연결 토큰**을 복사합니다(`runtime.json`에도 있습니다). Windows 10 콘솔에서 글자를 마우스로 선택한 채 두면 서버가 멈추므로, 복사 후 `Esc`를 누릅니다.
 4. Chrome에서 `chrome://extensions` → 개발자 모드 → **압축해제된 확장 프로그램을 로드합니다** → 이 프로젝트의 `extension` 폴더 선택.
@@ -76,7 +76,7 @@ Linux에서는 `.venv/Scripts/python.exe` 대신 `.venv/bin/python`을 씁니다
 
 선택 사항: Playwright가 설치된 환경에서 `node tests/browser.cjs`로 실제 DOM에 가상 시선과 Jev 응답을 주입하는 통합 테스트를 실행합니다. `PLAYWRIGHT_PATH`와 `CHROME_PATH`로 실행 경로를 지정할 수 있습니다. 이 테스트는 실제 사용자 정확도나 Jev 품질을 측정하지 않습니다.
 
-카메라가 열리지 않으면 Windows 카메라 권한(Linux는 `/dev/video*` 접근 권한, 보통 `video` 그룹), 다른 프로그램의 카메라 점유, `.env`의 `CAMERA_INDEX`를 확인합니다. API 키를 바꾸면 서버를 다시 시작합니다. CPU 스레드는 `.env`의 `CPU_THREADS`로 조절합니다. 카메라가 여러 대면 서버 시작 때 터미널에 목록이 나오고 번호를 골라 쓸 수 있습니다(Enter는 `.env`의 `CAMERA_INDEX`). 확장을 시작하면 Chrome 창을 줄여 화면 양옆(6%)·아래(15%)에 여백을 두고, 중지하면 원래 크기로 되돌립니다. 여백 비율은 `extension/core.js`의 `MARGIN_SIDE`, `MARGIN_BOTTOM`에서 바꿉니다. Linux의 `start.sh`는 `SHRINK_WINDOW=0`으로 창 줄이기를 끕니다. Hyprland 같은 타일링 창 관리자는 창 크기를 직접 정해서, 확장이 창을 줄이면 타일 크기와 어긋나 화면이 깨지기 때문입니다. 팝업이 시작할 때 서버의 `/health`에서 이 값을 읽습니다(서버가 꺼져 있으면 줄입니다).
+카메라가 열리지 않으면 Windows 카메라 권한(Linux는 `/dev/video*` 접근 권한, 보통 `video` 그룹), 다른 프로그램의 카메라 점유, `.env`의 `CAMERA_INDEX`를 확인합니다. API 키를 바꾸면 서버를 다시 시작합니다. CPU 스레드는 `.env`의 `CPU_THREADS`로 조절합니다. 비워 두면 자동으로 논리 코어 수의 절반(2~8개)을 씁니다. 이 노트북(논리 코어 16개)에서 얼굴 점 찾기와 함께 재 보니 int8 모델이 4개 57ms, 6개 46ms, 8개 41ms였고 12·16개는 서로 CPU를 다퉈 오히려 느렸습니다. 카메라가 여러 대면 서버 시작 때 터미널에 목록이 나오고 번호를 골라 쓸 수 있습니다(Enter는 `.env`의 `CAMERA_INDEX`). 확장을 시작하면 Chrome 창을 줄여 화면 양옆(6%)·아래(15%)에 여백을 두고, 중지하면 원래 크기로 되돌립니다. 여백 비율은 `extension/core.js`의 `MARGIN_SIDE`, `MARGIN_BOTTOM`에서 바꿉니다. Linux의 `start.sh`는 `SHRINK_WINDOW=0`으로 창 줄이기를 끕니다. Hyprland 같은 타일링 창 관리자는 창 크기를 직접 정해서, 확장이 창을 줄이면 타일 크기와 어긋나 화면이 깨지기 때문입니다. 팝업이 시작할 때 서버의 `/health`에서 이 값을 읽습니다(서버가 꺼져 있으면 줄입니다).
 
 ### 0.2.7 적용
 

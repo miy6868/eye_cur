@@ -26,13 +26,21 @@ def model_path():
     return ROOT / "models" / name
 
 
+def thread_count():
+    """모델 하나를 몇 개의 CPU 스레드로 나눠 계산할지. .env의 CPU_THREADS가 비어 있으면 자동으로 정한다."""
+    # 자동: 논리 코어 수의 절반(보통 실제 코어 수). 남는 절반은 카메라·얼굴 점 찾기·브라우저가 쓴다.
+    # 이 노트북(논리 코어 16개)에서 얼굴 점 찾기와 함께 재 보니 4개 57ms → 8개 41ms로 가장 빨랐고,
+    # 12·16개는 서로 CPU를 다퉈서 오히려 느렸다. 그래서 최대 8개
+    automatic = (os.cpu_count() or 4) // 2
+    return max(2, min(8, int(os.getenv("CPU_THREADS") or automatic)))
+
+
 def load_model():
     path = model_path()
     if not path.exists():
         raise RuntimeError("UniGaze 모델이 없습니다. scripts/download_models.py를 실행하세요.")
     options = ort.SessionOptions()
-    # 모델 하나를 몇 개의 CPU 코어로 나눠 계산할지. 나머지 코어는 카메라·얼굴 점 찾기가 쓴다
-    options.intra_op_num_threads = max(1, min(8, int(os.getenv("CPU_THREADS", "4"))))
+    options.intra_op_num_threads = thread_count()
     options.inter_op_num_threads = 1
     return ort.InferenceSession(str(path), options, providers=["CPUExecutionProvider"])
 
