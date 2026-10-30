@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
-import torch
 from backend.tracker import Tracker
 
 
@@ -23,9 +22,9 @@ class AsyncTrackerTests(unittest.TestCase):
                 return SimpleNamespace(multi_face_landmarks=[SimpleNamespace(landmark=[SimpleNamespace(x=.5, y=.5)] * 468)])
             def close(self): pass
         class Model:
-            def __call__(self, inputs):
+            def run(self, outputs, inputs):
                 started.set(); release.wait(3)
-                return torch.zeros(1, 2)
+                return [np.zeros((1, 2), dtype=np.float32)]
         tracker = None
         try:
             with patch('backend.tracker.load_model', return_value=Model()), patch('backend.tracker.LatestCamera', Camera), \

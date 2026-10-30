@@ -35,8 +35,9 @@
   const POINT_COLLECT_MS = 800;
   const POINT_MIN_RECORDS = 3;    // 눈을 감아 표본이 이보다 적으면 조금 더 기다린다
   const POINT_TIMEOUT_MS = 2100;  // 그래도 이 시간이 지나면 다음 점으로: 18번 × 2.1초라도 40초를 넘지 않는다
-  // 저장된 보정이 어떤 방식으로 만들어졌는지 표시: 예전 움직이는 점 보정은 이어 쓰지 않고 다시 보정한다
-  const CALIBRATION_METHOD = 'points9';
+  // 저장된 보정이 어떤 시선 모델·방식으로 만들어졌는지 표시: 둘 중 하나라도 바뀌면 예전 보정은 이어 쓰지 않고 다시 보정한다
+  // (GazeTR과 UniGaze는 같은 곳을 봐도 출력 각도가 달라서, 예전 보정 계수를 그대로 쓰면 엉뚱한 곳을 가리킨다)
+  const CALIBRATION_METHOD = 'unigaze-points9';
   let currentContext;
   let running = false, host, shadow, model, calibration, smooth, clicker;
   let selected = null, pending = null, requestNumber = 0, lastRequest = 0;

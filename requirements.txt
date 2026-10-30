@@ -5,4 +5,9 @@ fastapi==0.115.12
 uvicorn[standard]==0.34.2
 httpx==0.28.1
 python-dotenv==1.1.0
-gdown==5.2.0
+# UniGaze-B를 ONNX로 바꿔(onnx) 돌린다(onnxruntime). safetensors는 공식 가중치 파일 형식
+onnxruntime==1.31.1
+onnx==1.22.0
+safetensors==0.8.0
+# mediapipe 0.10.21은 protobuf 5 이상에서 깨진다. onnx가 더 새 protobuf를 끌어오지 않게 고정한다
+protobuf==4.25.9

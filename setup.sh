@@ -10,7 +10,7 @@ if [ ! -x .venv/bin/python ]; then
     uv python install 3.11
     uv venv --clear --python 3.11 .venv
 fi
-# GPU 없이 돌리므로 CPU 전용 torch만 받는다 (CUDA 용량 절약)
+# GPU 없이 돌리므로 CPU 전용 torch만 받는다 (CUDA 용량 절약). torch는 설치 때 UniGaze를 ONNX로 바꾸는 데만 쓴다
 uv pip install --python .venv/bin/python torch==2.7.1 --index-url https://download.pytorch.org/whl/cpu
 uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python scripts/download_models.py

@@ -30,7 +30,7 @@
     }
     return a.map(row => row[a.length]);
   }
-  // 프레임 하나를 기록 {gaze, time}으로 바꾼다. gaze는 GazeTR 시선 각도 2개, time은 점이 나타난 뒤 촬영까지(ms). 쓸 수 없으면 null
+  // 프레임 하나를 기록 {gaze, time}으로 바꾼다. gaze는 시선 모델(UniGaze)의 [좌우, 위아래] 각도 2개, time은 점이 나타난 뒤 촬영까지(ms). 쓸 수 없으면 null
   function gazeRecord(frame, now, shownAt) {
     if (!frame.valid || frame.closed || frame.closing || frame.eyesReady === false) return null;
     if (!Array.isArray(frame.gaze) || frame.gaze.length !== 2 || !frame.gaze.every(Number.isFinite)) return null;
@@ -49,7 +49,7 @@
     return records[0].gaze.map((_, k) => median(records.map(r => r.gaze[k])));
   }
   // points: [{target, medians: 바퀴마다 medianGaze}] → 보정 모델
-  // 점 9개에 입력 4개(홍채 포함)를 쓰면 잡음까지 외웠다: 예전 기록 4개 모두 GazeTR 2개 입력이 더 정확했다
+  // 점 9개에 입력 4개(홍채 포함)를 쓰면 잡음까지 외웠다: 예전 GazeTR 기록 4개 모두 시선 각도 2개만 쓴 쪽이 더 정확했다
   function fitPoints(points) {
     // 두 바퀴 값을 평균한다. 한 바퀴에서만 표본을 얻은 점은 그 값만 쓴다
     const samples = points.filter(p => p.medians.length).map(p => ({target: p.target, gaze: average(p.medians)}));
@@ -69,7 +69,7 @@
     const inputs = samples[0].gaze.map((_, k) => k);
     const mean = inputs.map(k => samples.reduce((sum, s) => sum + s.gaze[k], 0) / samples.length);
     const scale = inputs.map(k => Math.sqrt(samples.reduce((sum, s) => sum + (s.gaze[k] - mean[k]) ** 2, 0) / samples.length) || 1);
-    // GazeTR 값(앞 2개)이 거의 안 변했으면 점을 따라 보지 않은 것이다. 홍채 값은 원래 변화가 작아서 검사하지 않는다
+    // 시선 각도(앞 2개)가 거의 안 변했으면 점을 따라 보지 않은 것이다. 홍채 값은 원래 변화가 작아서 검사하지 않는다
     if (scale.slice(0, 2).some(x => x < 0.003)) throw new Error('시선 변화가 부족합니다. 조명과 카메라 위치를 확인하세요.');
     const rows = samples.map(s => features(s.gaze, mean, scale, degree));
     const columns = Array.from({length: rows[0].length}, (_, i) => i);

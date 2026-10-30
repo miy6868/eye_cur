@@ -1,7 +1,6 @@
 """CPU-only webcam inference. No image leaves this process."""
 import json
 import os
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -9,29 +8,41 @@ from pathlib import Path
 import cv2
 import mediapipe as mp
 import numpy as np
-import torch
+import onnxruntime as ort
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "vendor"))
-from model import Model  # noqa: E402
 from backend.camera import LatestCamera
 from backend.gestures import EyeState, MouthState, mouth_ratio
 
+# UniGaze는 ImageNet 사진의 채널별 평균·표준편차(RGB 순서)로 정규화한 얼굴로 학습했다
+IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+
+def model_path():
+    # .env의 GAZE_INT8=1: 숫자를 8비트로 줄인 모델. 이 노트북에서 2배 빠르지만(104→57ms)
+    # 프레임마다 흔들림이 20~50% 커져서, 느린 PC에서만 쓴다
+    name = "unigaze_b16_int8.onnx" if os.getenv("GAZE_INT8") == "1" else "unigaze_b16.onnx"
+    return ROOT / "models" / name
+
 
 def load_model():
-    path = ROOT / "models/GazeTR-H-ETH.pt"
+    path = model_path()
     if not path.exists():
-        raise RuntimeError("GazeTR 가중치가 없습니다. scripts/download_models.py를 실행하세요.")
-    torch.set_num_threads(max(1, min(8, int(os.getenv("CPU_THREADS", "2")))))
-    model = Model().cpu().eval()
-    state = torch.load(path, map_location="cpu", weights_only=True)
-    for key in ("state_dict", "model_state_dict", "model"):
-        if isinstance(state, dict) and key in state:
-            state = state[key]
-            break
-    state = {k.removeprefix("module."): v for k, v in state.items()}
-    model.load_state_dict(state, strict=True)
-    return model
+        raise RuntimeError("UniGaze 모델이 없습니다. scripts/download_models.py를 실행하세요.")
+    options = ort.SessionOptions()
+    # 모델 하나를 몇 개의 CPU 코어로 나눠 계산할지. 나머지 코어는 카메라·얼굴 점 찾기가 쓴다
+    options.intra_op_num_threads = max(1, min(8, int(os.getenv("CPU_THREADS", "4"))))
+    options.inter_op_num_threads = 1
+    return ort.InferenceSession(str(path), options, providers=["CPUExecutionProvider"])
+
+
+def face_tensor(face):
+    """정규화한 얼굴 이미지(BGR, 0~255, 224×224) → UniGaze 입력 (1, 3, 224, 224)."""
+    rgb = face[:, :, ::-1].astype(np.float32) / 255  # OpenCV는 BGR로 읽지만 UniGaze는 RGB로 학습했다
+    rgb = (rgb - IMAGENET_MEAN) / IMAGENET_STD
+    # (높이, 너비, 채널) → (1장, 채널, 높이, 너비): 모델이 받는 순서
+    return np.ascontiguousarray(rgb.transpose(2, 0, 1)[None])
 
 
 # ETH-XGaze face_model.txt rows [20, 23, 26, 29, 15, 19] (mm).
@@ -95,7 +106,7 @@ def normalize_face(frame, points, camera, distortion):
 
 def iris_offset(points):
     """홍채 중심이 두 눈 구석 사이 어디에 있는지 [가로, 세로] (눈 너비 단위, 두 눈 평균).
-    GazeTR과 달리 눈 모양만 보는 기하 단서라, 두 값을 비교해 어느 쪽이 안정적인지 측정한다."""
+    시선 모델과 달리 눈 모양만 보는 기하 단서라, 두 값을 비교해 어느 쪽이 안정적인지 측정한다."""
     offsets = []
     for corners in ([33, 133], [362, 263]):
         a, b = points[corners]
@@ -198,12 +209,11 @@ class Tracker:
 
     def infer(self, face, stamp):
         started = time.perf_counter()
-        # Upstream reader uses BGR / [0, 1], with no ImageNet normalization.
-        tensor = torch.from_numpy(face.transpose(2, 0, 1).copy()).float().div_(255).unsqueeze(0)
-        with torch.inference_mode():
-            gaze = self.model({"face": tensor}).squeeze(0).tolist()
-        if not np.isfinite(gaze).all():
+        pitch, yaw = self.model.run(None, {"face": face_tensor(face)})[0][0]
+        if not np.isfinite([pitch, yaw]).all():
             raise ValueError("Non-finite gaze")
+        # UniGaze는 [위아래(pitch), 좌우(yaw)] 라디안. 보정·기록은 예전 모델 때부터 [좌우, 위아래]로 써 왔으므로 바꿔 보낸다
+        gaze = [float(yaw), float(pitch)]
         return gaze, stamp, round((time.perf_counter() - started) * 1000)
 
     def close(self):
