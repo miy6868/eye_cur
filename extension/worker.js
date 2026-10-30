@@ -189,7 +189,10 @@ async function start(tabId, token, bounds) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
-  if (message.type === 'getStatus') { reply({status, enabled}); return; }
+  if (message.type === 'getStatus') {
+    // 팝업이 보여 줄 것: 상태 문구, 실행 중인지, 마지막 보정의 점 오차(px)
+    reply({status, enabled, calibrationError: savedCalibration?.model?.pixelError ?? null}); return;
+  }
   if (message.type === 'start' && !sender.tab) {
     start(message.tabId, message.token, message.bounds).then(() => reply({ok: true})).catch(error => reply({error: error.message}));
     return true;
@@ -197,6 +200,13 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   const current = sender.tab?.id === activeTab && message.context === context;
   if (message.type === 'stop' && (!sender.tab || current)) {
     stop(message.reason).then(() => reply({ok: true})); return true;
+  }
+  // 팝업의 다시 보정(sender.tab 없음): 팝업이 알려 준 탭에 새로 붙인다.
+  // Linux에서는 팝업을 여는 것만으로 창 초점이 빠져 페이지가 이미 떼어져 있을 수 있어서 activeTab을 쓰지 않는다.
+  // 그때 attach는 '대기 중'으로 끝나고, 팝업이 닫혀 Chrome 창에 초점이 돌아오면 저장된 보정 없이 붙어 보정부터 한다
+  if (message.type === 'recalibrate' && !sender.tab) {
+    if (!enabled) { reply({error: '먼저 시작을 누르세요.'}); return; }
+    forgetCalibration(); attach(message.tabId).then(() => reply({ok: true})); return true;
   }
   if (!current || !enabled) return;
   if (message.type === 'calibrated') {

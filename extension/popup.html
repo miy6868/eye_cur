@@ -1,11 +1,63 @@
 <!doctype html>
-<html lang="ko"><meta charset="utf-8"><title>Gaze + Jev</title>
+<html lang="ko"><meta charset="utf-8"><title>UniGaze 시선 클릭</title>
 <style>
-body{width:300px;margin:20px;font:14px/1.6 system-ui;color:#172331}h1{font-size:20px;margin:0}p{color:#536176}label{display:block}input{box-sizing:border-box;width:100%;padding:9px;border:1px solid #b4bfcb;border-radius:6px}button{padding:10px 14px;margin:12px 4px 0 0;border:0;border-radius:6px;cursor:pointer;background:#175cd3;color:white}button:last-of-type{background:#e9edf3;color:#172331}#status{font-size:12px;overflow-wrap:anywhere}small{color:#536176}
+  * { box-sizing: border-box; }
+  body { width: 320px; margin: 0; font: 14px/1.5 system-ui, sans-serif; color: #111827; background: #f6f7f9; }
+  header { padding: 16px 18px 12px; background: #fff; border-bottom: 1px solid #e5e7eb; }
+  h1 { margin: 0; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+  header p { margin: 2px 0 0; color: #6b7280; font-size: 12px; }
+  /* 실행 중이면 초록, 꺼져 있으면 회색 점 */
+  .light { width: 10px; height: 10px; border-radius: 50%; background: #9ca3af; }
+  .running .light { background: #10b981; box-shadow: 0 0 0 3px #10b98133; }
+  section { padding: 14px 18px; border-bottom: 1px solid #e5e7eb; }
+  #status { margin: 0; font-size: 13px; color: #374151; overflow-wrap: anywhere; min-height: 20px; }
+  #quality { margin: 4px 0 0; font-size: 12px; color: #6b7280; }
+  label { display: block; font-size: 12px; color: #4b5563; margin-bottom: 4px; }
+  input[type=password] { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; font: inherit; }
+  .buttons { display: flex; gap: 8px; margin-top: 10px; }
+  button { flex: 1; padding: 9px 12px; border: 0; border-radius: 8px; font: 600 14px system-ui, sans-serif; cursor: pointer; }
+  .primary { background: #175cd3; color: #fff; }
+  .secondary { background: #e5e7eb; color: #111827; }
+  .danger { background: #fee2e2; color: #b91c1c; }
+  /* 꺼져 있을 때는 토큰·시작만, 실행 중에는 다시 보정·중지만 보인다 */
+  .running .when-stopped, body:not(.running) .when-running { display: none; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .row small { display: block; color: #6b7280; font-size: 12px; }
+  /* 켜고 끄는 스위치: 체크박스를 둥근 막대 모양으로 그린다 */
+  .switch { position: relative; flex: none; width: 40px; height: 22px; margin: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; border-radius: 11px; background: #d1d5db; cursor: pointer; transition: background .15s; }
+  .switch span::before { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+  .switch input:checked + span { background: #175cd3; }
+  .switch input:checked + span::before { transform: translateX(18px); }
+  .switch input:focus-visible + span { outline: 2px solid #175cd3; outline-offset: 2px; }
+  footer { padding: 10px 18px 14px; font-size: 11px; color: #6b7280; }
 </style>
-<h1>UniGaze + Jev</h1><p>CPU 시선 추적 · 입 벌렸다 다물기로 클릭</p>
-<label for="token">로컬 서버 연결 토큰</label><input id="token" type="password" autocomplete="off" placeholder="start.ps1에 표시된 토큰">
-<button id="start">시작</button><button id="stop">중지</button>
-<p id="status" role="status">서버를 실행하고 토큰을 입력하세요.</p>
-<small>보정은 저장되어 탭을 바꾸거나 ESC로 껐다 켜도 이어집니다. 시작하면 카메라에서 먼 양옆·아래에 여백을 두도록 Chrome 창을 줄이고, 중지하면 되돌립니다. 창 크기·위치가 바뀌면 새로 보정합니다. 시선이 어긋나면 화면의 다시 보정을 누르세요.</small>
+<header>
+  <h1><span class="light"></span>시선 클릭</h1>
+  <p>UniGaze · 버튼을 바라보고 입을 벌렸다 다물면 클릭</p>
+</header>
+<section>
+  <p id="status" role="status">서버를 실행하고 토큰을 입력하세요.</p>
+  <p id="quality"></p>
+</section>
+<section>
+  <div class="when-stopped">
+    <label for="token">로컬 서버 연결 토큰</label>
+    <input id="token" type="password" autocomplete="off" placeholder="start 스크립트에 표시된 토큰">
+    <div class="buttons"><button id="start" class="primary">시작</button></div>
+  </div>
+  <div class="when-running buttons">
+    <button id="recalibrate" class="secondary">다시 보정</button>
+    <button id="stop" class="danger">중지</button>
+  </div>
+</section>
+<section class="row">
+  <div>
+    <div>화면에 정보 표시</div>
+    <small>왼쪽 아래 정보 상자와 단축키(F 필터 바꾸기, ESC 중지). 끄면 사이트의 키를 가로채지 않습니다</small>
+  </div>
+  <label class="switch"><input id="info" type="checkbox" role="switch" aria-label="화면에 정보 표시"><span></span></label>
+</section>
+<footer>보정은 저장되어 탭을 바꾸거나 껐다 켜도 이어집니다. 시작하면 카메라에서 먼 양옆·아래에 여백을 두도록 Chrome 창을 줄이고, 중지하면 되돌립니다. 창 크기·위치가 바뀌면 새로 보정합니다.</footer>
 <script src="core.js"></script><script src="popup.js"></script></html>

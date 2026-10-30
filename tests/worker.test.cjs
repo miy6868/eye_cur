@@ -214,3 +214,29 @@ test('screen stays awake while running and is released on stop', async () => {
   await h.message({type: 'stop'});
   assert.equal(h.keepAwake(), null);
 });
+
+test('popup recalibrates the viewed tab and shows the last calibration error', async () => {
+  const h = harness(); await h.message({type: 'start', tabId: 1, token: 'test'}); h.sockets[0].open();
+  await h.message({type: 'calibrated', context: h.current().context, model: {degree: 1, pixelError: 85}, layout: 'fixed'}, {tab: {id: 1}});
+  assert.equal((await h.message({type: 'getStatus'})).calibrationError, 85);
+  // 팝업에서 온 메시지에는 sender.tab이 없다
+  assert.equal((await h.message({type: 'recalibrate', tabId: 1})).ok, true);
+  assert.equal(h.current().calibration, null);
+  assert.equal((await h.message({type: 'getStatus'})).calibrationError, null);
+});
+
+test('popup recalibrate works after opening the popup dropped window focus (Linux)', async () => {
+  const h = harness(); await h.message({type: 'start', tabId: 1, token: 'test'}); h.sockets[0].open();
+  await h.message({type: 'calibrated', context: h.current().context, model: {degree: 1}, layout: 'fixed'}, {tab: {id: 1}});
+  await h.focus(false); // 팝업을 열면 창 초점이 NONE이 되어 페이지가 떼어진다
+  const starts = h.sent.filter(m => m.type === 'start').length;
+  assert.equal((await h.message({type: 'recalibrate', tabId: 1})).ok, true);
+  await h.focus(true); // 팝업이 닫혀 초점이 돌아오면 저장된 보정 없이 다시 붙는다
+  assert.equal(h.sent.filter(m => m.type === 'start').length, starts + 1);
+  assert.equal(h.current().calibration, null);
+});
+
+test('popup recalibrate while stopped explains what to do', async () => {
+  const h = harness();
+  assert.match((await h.message({type: 'recalibrate', tabId: 1})).error, /시작/);
+});
