@@ -28,11 +28,13 @@
   let lockGaze = null; // 클릭 대상이 고정되는 순간의 예측 위치(px): 클릭이 끝나면 드리프트 보정에 쓴다
   const GRAPH_MS = 3000;
   const JITTER_MS = 1500;
-  // 9점 응시 보정: 점마다 0.5초는 눈이 옮겨 가는 시간이라 버리고, 0.8초 동안 표본을 모은다. 18번 × 1.3초 ≈ 24초
-  const POINT_SETTLE_MS = 500;
+  // 9점 응시 보정: 점마다 0.8초는 눈이 옮겨 가는 시간이라 버리고, 0.8초 동안 표본을 모은다. 18번 × 1.6초 ≈ 29초
+  // 0.8초인 이유: 눈꺼풀은 눈보다 늦게 내려와서, 아래쪽 점에서는 0.5초가 지나도 시선 값이 계속 바뀌었다.
+  // 기록 2개에서 0.8~1초 뒤 값만 쓰면 아래 줄 오차가 줄었다(88→57px, 106→80px)
+  const POINT_SETTLE_MS = 800;
   const POINT_COLLECT_MS = 800;
   const POINT_MIN_RECORDS = 3;    // 눈을 감아 표본이 이보다 적으면 조금 더 기다린다
-  const POINT_TIMEOUT_MS = 2000;  // 그래도 이 시간이 지나면 다음 점으로: 18번 × 2초라도 40초를 넘지 않는다
+  const POINT_TIMEOUT_MS = 2100;  // 그래도 이 시간이 지나면 다음 점으로: 18번 × 2.1초라도 40초를 넘지 않는다
   // 저장된 보정이 어떤 방식으로 만들어졌는지 표시: 예전 움직이는 점 보정은 이어 쓰지 않고 다시 보정한다
   const CALIBRATION_METHOD = 'points9';
   let currentContext;
@@ -107,7 +109,7 @@
       #cursor{position:fixed;width:12px;height:12px;border:2px solid #fff;border-radius:50%;background:#176cff;transform:translate(-50%,-50%)}
       #target{position:fixed;border:3px solid #21dba0;border-radius:5px;background:#21dba01a;box-shadow:0 0 0 2px #071b2a99}
       </style>
-      <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 약 25초</div><div id="next"></div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
+      <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 약 30초</div><div id="next"></div><div id="dot"></div><button id="use" hidden>그래도 사용</button></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
       <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="drift"></span><span id="eyesize"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas><button id="recalibrate">다시 보정</button><button id="stop">중지 · ESC</button></div>`;
     document.documentElement.appendChild(host);
@@ -137,7 +139,7 @@
     const [x, y] = CALIBRATION_POINTS[CALIBRATION_ORDER[calibration.step]];
     const dot = shadow.querySelector('#dot');
     dot.style.left = `${x * 100}vw`; dot.style.top = `${y * 100}vh`;
-    // 크게 나타나 작아지는 점이 눈을 끌어당긴다. 작아지는 0.5초가 눈이 옮겨 가는 시간(POINT_SETTLE_MS)이다
+    // 크게 나타나 작아지는 점이 눈을 끌어당긴다. 작아지는 0.8초가 눈이 옮겨 가는 시간(POINT_SETTLE_MS)이다
     dot.animate([{transform: 'translate(-50%,-50%) scale(3)'}, {transform: 'translate(-50%,-50%) scale(1)'}], POINT_SETTLE_MS);
     // 다음 점 자리를 회색 점선 원으로 미리 보여 준다: 처음 쓰는 사용자도 점이 어디로 갈지 안다
     // 같은 점을 한 번 더 볼 때(바퀴가 바뀔 때)는 원이 지금 점을 둘러싸서 "그대로 보라"는 뜻이 된다
