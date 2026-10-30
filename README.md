@@ -75,7 +75,7 @@ Linux에서는 `.venv/Scripts/python.exe` 대신 `.venv/bin/python`을 씁니다
 
 선택 사항: Playwright가 설치된 환경에서 `node tests/browser.cjs`로 실제 DOM에 가상 시선과 Jev 응답을 주입하는 통합 테스트를 실행합니다. `PLAYWRIGHT_PATH`와 `CHROME_PATH`로 실행 경로를 지정할 수 있습니다. 이 테스트는 실제 사용자 정확도나 Jev 품질을 측정하지 않습니다.
 
-카메라가 열리지 않으면 Windows 카메라 권한(Linux는 `/dev/video*` 접근 권한, 보통 `video` 그룹), 다른 프로그램의 카메라 점유, `.env`의 `CAMERA_INDEX`를 확인합니다. API 키를 바꾸면 서버를 다시 시작합니다. CPU 스레드는 `.env`의 `CPU_THREADS`로 조절합니다.
+카메라가 열리지 않으면 Windows 카메라 권한(Linux는 `/dev/video*` 접근 권한, 보통 `video` 그룹), 다른 프로그램의 카메라 점유, `.env`의 `CAMERA_INDEX`를 확인합니다. API 키를 바꾸면 서버를 다시 시작합니다. CPU 스레드는 `.env`의 `CPU_THREADS`로 조절합니다. 카메라가 여러 대면 서버 시작 때 터미널에 목록이 나오고 번호를 골라 쓸 수 있습니다(Enter는 `.env`의 `CAMERA_INDEX`). 확장을 시작하면 Chrome 창을 줄여 화면 양옆(6%)·아래(15%)에 여백을 두고, 중지하면 원래 크기로 되돌립니다. 여백 비율은 `extension/core.js`의 `MARGIN_SIDE`, `MARGIN_BOTTOM`에서 바꿉니다.
 
 ### 0.2.7 적용
 
