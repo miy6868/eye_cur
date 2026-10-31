@@ -10,3 +10,4 @@ models/*
 runtime.json
 *.log
 logs/
+*.kate-swp
