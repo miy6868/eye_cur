@@ -1,7 +1,7 @@
 # 프로젝트 메모
 
 ## 규칙
-- 고1 "AI 앱 개발 프로젝트" 발표 과제다. 사용자는 코드 수준 설명을 하지 않으므로 코드 스타일은 작업하기 편한 쪽으로 정한다. 주석·문서는 한국어.
+- 주석·문서는 한국어.
 - AI 모델(MediaPipe, UniGaze)은 입력 처리에만 쓴다. 보정 회귀·떨림 필터·대상 선택·입 벌리기 클릭은 직접 구현한 코드로 유지하고 외부 라이브러리나 API로 바꾸지 않는다.
 - 기본적으로 개발은 Arch Linux + Hyprland, 시연은 Windows 학교 PC + Chrome. OS별 차이는 `backend/camera.py`와 setup/start 스크립트에만 둔다. Windows 동작은 깨지 않는다.
 - 순수 로직은 `extension/core.js`에 두고 `tests/core.test.cjs`에 테스트를 추가한다.
@@ -13,6 +13,7 @@
 - 사용자가 확인하는 방법을 이미 몇번 알려준 적이 있고, 알려줄 방법이 똑같다면 아주 간략하게 말하도록 한다.
 - 파일의 역할, 메시지 형식, 코드만 봐선 모르는 사실(아래 지도·함정)이 바뀌면 이 파일과 문서의 해당 부분도 같이 고친다. 함수 이름·현재 값은 이 파일에 적지 않는다(grep과 config.toml로 본다).
 - 문서: `README.md`는 대문(빠른 시작만), `docs/guide.md`는 사용자용 설명서, `docs/agent/*.md`는 분야별 설계 이유·측정 기록(agent용). 사용법이 바뀌면 guide, 방식을 바꾸거나 실험하면 agent 문서에 이유·수치를 남긴다. 설정값은 자주 바뀌므로 문서에 숫자로 적지 않는다(실험 당시 값·측정 결과만 적는다).
+- If the docs and the existing code disagree, follow the existing code, and list every mismatch in your final reply
 
 ## 전체 흐름
 ```
