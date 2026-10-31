@@ -30,12 +30,12 @@ mouth_min_ms = 500       # 이보다 짧게 벌리면 무시(말하기 등)
 mouth_max_ms = 2000      # 이보다 오래 벌리면 클릭 대신 메뉴. 진행 고리에서 보라색이 시작되는 곳
 mouth_cooldown_ms = 800  # 클릭 직후 다시 클릭되지 않는 시간
 eyes_min_ms = 600        # 눈 감기 클릭: 이보다 짧은 깜빡임은 무시
-eyes_max_ms = 2000       # 이보다 오래 감으면 클릭 대신 메뉴
+eyes_max_ms = 1200       # 이보다 오래 감으면 클릭 대신 메뉴
 eyes_cooldown_ms = 800
 
 [select]
 dwell_ms = 300         # 같은 대상을 이만큼 계속 보면 선택(초록 테두리)
-switch_margin_px = 30  # 새 대상이 지금 선택보다 이만큼 더 가까워야 선택을 바꾼다
+switch_margin_px = 20  # 새 대상이 지금 선택보다 이만큼 더 가까워야 선택을 바꾼다
 
 [calibration]
 lead_ms = 500      # 보정을 켜고 첫 점이 작아진 뒤 더 기다리는 시간
