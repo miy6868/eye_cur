@@ -94,6 +94,8 @@ async def socket(ws: WebSocket):
         while True:
             message = await ws.receive_json()
             if message.get("type") == "calibrationLog":
+                if not CONFIG.get("save_calibration_log", True):
+                    continue  # config.toml save_calibration_log = false
                 LOG_FILE.parent.mkdir(exist_ok=True)
                 message["savedAt"] = time.time()
                 with open(LOG_FILE, "a", encoding="utf-8") as file:

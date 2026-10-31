@@ -47,24 +47,33 @@ class SocketTests(unittest.TestCase):
         self.assertTrue(closed)
         self.assertFalse(server.active)
 
-    def test_calibration_log_is_appended(self):
+    def send_calibration_log(self, log_file, save):
         class FakeTracker:
             def read(self): return {'type': 'frame', 'valid': False, 'time': 10}
             def close(self): pass
+        with patch.object(server, 'LOG_FILE', log_file), patch.dict(server.CONFIG, {'save_calibration_log': save}), \
+             patch.dict('sys.modules', {'backend.tracker': SimpleNamespace(Tracker=FakeTracker)}):
+            with self.client.websocket_connect('/ws', headers={'origin': 'chrome-extension://test'}) as ws:
+                ws.send_json({'token': server.TOKEN})
+                ws.receive_json(); ws.receive_json(); ws.receive_json()
+                ws.send_json({'type': 'calibrationLog', 'lag': 100})
+                ws.send_json({'type': 'stop'})
+                with self.assertRaises(WebSocketDisconnect):
+                    while True: ws.receive_json()
+
+    def test_calibration_log_is_appended(self):
         with tempfile.TemporaryDirectory() as folder:
             log_file = Path(folder) / 'logs' / 'pursuit.jsonl'
-            with patch.object(server, 'LOG_FILE', log_file), \
-                 patch.dict('sys.modules', {'backend.tracker': SimpleNamespace(Tracker=FakeTracker)}):
-                with self.client.websocket_connect('/ws', headers={'origin': 'chrome-extension://test'}) as ws:
-                    ws.send_json({'token': server.TOKEN})
-                    ws.receive_json(); ws.receive_json(); ws.receive_json()
-                    ws.send_json({'type': 'calibrationLog', 'lag': 100})
-                    ws.send_json({'type': 'stop'})
-                    with self.assertRaises(WebSocketDisconnect):
-                        while True: ws.receive_json()
+            self.send_calibration_log(log_file, True)
             saved = json.loads(log_file.read_text(encoding='utf-8'))
             self.assertEqual(saved['lag'], 100)
             self.assertIn('savedAt', saved)
+
+    def test_calibration_log_is_not_saved_when_turned_off(self):
+        with tempfile.TemporaryDirectory() as folder:
+            log_file = Path(folder) / 'logs' / 'pursuit.jsonl'
+            self.send_calibration_log(log_file, False)
+            self.assertFalse(log_file.exists())
 
 
 if __name__ == '__main__':

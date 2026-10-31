@@ -12,6 +12,9 @@ gaze_int8 = true
 # 측정한 카메라 내부 파라미터 JSON 파일 경로(camera_matrix, dist_coefficients). 비우면 추정값을 쓴다
 camera_intrinsics = ""
 
+# true: 보정할 때마다 시선 값·점 위치·오차를 logs/pursuit.jsonl에 한 줄씩 쌓는다(카메라 영상은 없음). 보정 분석용. false면 저장하지 않는다
+save_calibration_log = true
+
 # ── 아래 [mouth]·[eyes]는 서버가 쓰고, [click]부터는 서버가 확장에 보낸다 ──
 # 바꾼 뒤에는 서버를 다시 켜고, 쓰던 웹페이지도 새로고침한다
 
