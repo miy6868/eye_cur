@@ -20,8 +20,10 @@
     {name: '지수평균 강(0.2)', create: () => new ExponentialSmoothing(0.2)},
     {name: '이동평균 최강(20)', create: () => new MovingAverage(20)},
     {name: '지수평균 최강(0.1)', create: () => new ExponentialSmoothing(0.1)},
-    // 응시 중에는 최대 30개(약 3초)를 평균해 지수평균 0.1보다 덜 떨리고, 시선이 뛰면 3개(약 0.3초) 만에 따라간다
-    {name: '응시 고정(120px)', create: () => new FixationFilter(120, 3, 30)},
+    // 응시 중에는 최근 15개(약 1.3초)를 평균하고, 120px 넘게 뛰면 3개(약 0.3초) 만에 따라간다.
+    // 30개였을 때는 덜 떨렸지만(보정 기록의 실제 잡음으로 재 보니 14px) 120px보다 작게 옮긴 시선을 2초 가까이 못 따라갔다.
+    // 15개: 떨림 20px, 작은 이동 1초. 개수가 적을수록 빨리 따라가고 더 떨린다
+    {name: '응시 고정(120px)', create: () => new FixationFilter(120, 3, 15)},
   ];
   let filterIndex = 5; // 응시 고정으로 시작
   let filter = filterChoices[filterIndex].create();
