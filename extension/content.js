@@ -416,7 +416,11 @@
     invalidate();
     if (item.overlay) { item.element.click(); return; }
     if (mode === 'keyboard') resetComposition(); // 페이지를 누르면(추천 목록 등) 입력칸 내용이 바뀔 수 있어 조합을 새로 시작
-    if (item.frameId === undefined) { GazeDOM.press(item.element, item.rect); status('클릭 완료'); }
+    if (item.frameId === undefined) {
+      GazeDOM.press(item.element, item.rect); status('클릭 완료');
+      // 이미 초점이 있던 칸(구글 검색칸은 페이지가 열릴 때 초점을 넣어 둔다)을 누르면 focusin이 다시 안 나서 여기서 연다
+      if (!mode && autoKeyboard && GazeDOM.editable(document.activeElement)) setMode('keyboard');
+    }
     else send({type: 'frameRelay', frameId: item.frameId, request: {type: 'frameClick', id: item.frameItemId}})
       .then(ok => status(ok ? '클릭 완료' : '대상이 바뀌어 클릭을 취소했습니다.'));
     if (CLICK_DRIFT && gaze) {
