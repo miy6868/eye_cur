@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -276,6 +276,13 @@ test('long mouth opening reports long even without a target (opens the menu)', (
   for (let time = 100; time <= 2600; time += 100) m.update({valid: true, mouthOpen: true, time}, null);
   assert.equal(m.update({valid: true, mouthOpen: false, time: 2700}, null), null);
   assert.equal(m.result, 'long');
+});
+
+test('mouthPhase tells what closing the mouth would do now', () => {
+  assert.equal(mouthPhase(300), 'wait');
+  assert.equal(mouthPhase(500), 'click');
+  assert.equal(mouthPhase(2000), 'click');
+  assert.equal(mouthPhase(2100), 'menu');
 });
 
 test('suggest matches by jamo prefix, typed syllables first, and skips the exact word', () => {

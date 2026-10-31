@@ -8,7 +8,7 @@
   // true: 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 고친다(클릭 보정). 효과를 아직 측정하지 않아 기본은 끔
   const CLICK_DRIFT = false;
   const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, MOUTH_MAX_MS} = globalThis.GazeCore;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -78,7 +78,7 @@
     selected = null; pending = null; history = []; resetFilter(); lockGaze = null;
     requestNumber++; clicker?.reset();
     nearest.reset(); // 스크롤·탭 이동 뒤에는 머무름을 처음부터 다시 잰다
-    if (shadow) shadow.querySelector('#target').hidden = true;
+    if (shadow) { shadow.querySelector('#target').hidden = true; shadow.querySelector('#timer').hidden = true; }
   }
   function end(message) {
     running = false; clearInterval(timer); invalidate(); mode = null; resetComposition();
@@ -137,6 +137,11 @@
       #target{position:fixed;border:3px solid #21dba0;border-radius:5px;background:#21dba01a;box-shadow:0 0 0 2px #071b2a99}
       /* 입을 벌리는 동안은 주황색: 정보 상자를 꺼 두어도 클릭이 진행 중인지 보인다 */
       #target.arming{border-color:#f59e0b;background:#f59e0b2e}
+      /* 입을 벌리는 동안 커서 자리에 시계 방향으로 차는 고리(2초에 가득). 색: 회색 = 아직 짧음, 초록 = 클릭, 빨강 = 대상 없음, 보라 = 메뉴 */
+      #timer{position:fixed;width:76px;height:76px;transform:translate(-50%,-50%);--c:#9ca3af}
+      #ring{position:absolute;inset:0;border-radius:50%;background:conic-gradient(var(--c) var(--p,0deg),#0b122080 0);-webkit-mask:radial-gradient(circle,transparent 23px,#000 24px);mask:radial-gradient(circle,transparent 23px,#000 24px)}
+      #timer.click{--c:#21dba0}#timer.none{--c:#f87171}#timer.menu{--c:#a78bfa}
+      #timerLabel{position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);white-space:nowrap;font:700 18px system-ui;color:#fff;background:#0b1220d9;border-radius:6px;padding:2px 10px}
       /* 메뉴·탭·키보드: 시선 오차가 커도 누를 수 있게 버튼을 화면 크기에 맞춰 크게 만든다 */
       #overlay{position:fixed;inset:0;font-family:system-ui;color:#fff}
       #overlay button{pointer-events:auto;font:700 4.4vh/1.15 system-ui;border-radius:2vh;background:#1f3350;border:3px solid #ffffff30;padding:1vh;overflow:hidden}
@@ -164,7 +169,7 @@
       </style>
       <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 약 30초</div><div id="next"></div><div id="dot"></div><div id="choices" hidden><button id="use">그래도 사용</button><button id="retry">다시 보정</button></div></div>
       <div id="overlay" hidden></div>
-      <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
+      <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div><div id="timer" hidden><div id="ring"></div><div id="timerLabel"></div></div>
       <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="drift"></span><span id="eyesize"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas></div>`;
     document.documentElement.appendChild(host);
     // 진짜 마우스로 키를 눌러도 페이지 입력칸의 초점을 빼앗지 않는다
@@ -441,6 +446,7 @@
     if (selected && !unchanged(selected)) invalidate();
     const wasActive = clicker.active;
     const clicked = clicker.update(message, mode === 'scroll' ? scrollExit : selected);
+    if (!clicker.active) shadow.querySelector('#timer').hidden = true;
     if (clicker.active && !wasActive) {
       // 입을 벌리기 시작한 순간(대상 고정) 직전 0.5초의 예측 위치 평균. 입을 벌리는 동안엔 시선이 흔들릴 수 있다
       const recent = trail.filter(p => now - p.time < 500).map(p => p.raw);
@@ -449,7 +455,7 @@
     if (clicker.active) {
       scrollVelocity = 0;
       showTarget(mode === 'scroll' ? scrollExit : selected);
-      if (CLICK_MODE === 'mouth') mouthStatus(message.time);
+      if (CLICK_MODE === 'mouth') { mouthStatus(message.time); showTimer(message.time - clicker.started); }
       else if (clicker.started === null) status(selected ? '눈 감기 시작 · 클릭 대상 고정' : '선택된 대상 없음 · 먼저 초록 테두리를 확인하세요.');
       else {
         const elapsed = message.time - clicker.started;
@@ -503,6 +509,18 @@
     if (elapsed > 2000) status(menuHint());
     else if (!clicker.target) status('입 벌림 감지 · 대상 없음 · 2초 넘게 벌리면 메뉴');
     else status(`대상 고정 · 입 벌림 ${(elapsed / 1000).toFixed(1)}초 · 0.5~2.0초 안에 다무세요`);
+  }
+  // 입 벌림 진행 고리: 벌린 순간의 커서 자리에 두고, 지금 다물면 무엇이 되는지 색과 글자로 보여 준다
+  function showTimer(elapsed) {
+    const timer = shadow.querySelector('#timer'), target = clicker.target;
+    const [x, y] = smooth || (target ? [target.rect[0] + target.rect[2] / 2, target.rect[1] + target.rect[3] / 2] : [innerWidth / 2, innerHeight / 2]);
+    const phase = mouthPhase(elapsed);
+    timer.className = phase === 'click' && !target ? 'none' : phase;
+    timer.style.left = `${x}px`; timer.style.top = `${y}px`;
+    timer.style.setProperty('--p', `${Math.min(1, elapsed / MOUTH_MAX_MS) * 360}deg`);
+    shadow.querySelector('#timerLabel').textContent = phase === 'wait' ? '…' : phase === 'menu' ? (mode === 'menu' ? '메뉴 닫기' : '메뉴') :
+      !target ? '대상 없음' : target === scrollExit ? '스크롤 끝' : '클릭';
+    timer.hidden = false;
   }
   function menuHint() { return mode === 'menu' ? '지금 끝내면 메뉴를 닫습니다' : '지금 끝내면 메뉴를 엽니다'; }
   function mouthResult() {
