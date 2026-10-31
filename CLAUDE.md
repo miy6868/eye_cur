@@ -47,7 +47,7 @@
 | `extension/frame.js` | 맨 위가 아닌 프레임에서만 동작. 워커가 중계한 `frameCollect`/`frameClick`에만 답한다 |
 | `extension/vendor/es-hangul.js` | es-hangul의 `assemble`·`disassemble`만 묶은 파일(전역 `Hangul`). 다시 만드는 명령은 README 출처 |
 | `extension/words/ko.json`, `en.json` | 추천 단어(빈도순). `scripts/build_words.py`로 생성, CC-BY-SA 4.0 |
-| `my_words.txt` | 사용자가 직접 넣는 추천 단어(한 줄에 하나, `#` 뒤 무시). 서버가 `settings.words`로 보내고 content.js가 빈도 목록 앞에 붙인다. 한글이 있으면 한글 키보드용. ANSI로 저장돼 못 읽으면 연결은 유지하고 빈 목록 |
+| `my_words.txt` | 사용자가 직접 넣는 추천 단어(한 줄에 하나, `#` 뒤 무시). 서버가 `settings.words`로 보내고 content.js가 빈도 목록 끝에 붙인다(우선순위 없이 같은 단어 취급, 사용자 요청). 한글이 있으면 한글 키보드용. ANSI로 저장돼 못 읽으면 연결은 유지하고 빈 목록 |
 | `extension/popup.html`, `popup.js` | 토큰 입력, 시작/다시 보정/중지, 상태, 스위치 두 개(정보 표시, 키보드 자동 표시) |
 | `demo.html` | 시연·테스트 페이지(`/demo`) |
 | `vendor/unigaze.py` | UniGaze-B를 torch만으로 다시 쓴 것. 설치 때 ONNX 변환에만 쓴다 |

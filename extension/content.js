@@ -758,10 +758,10 @@
     wordLists[lang] ??= fetch(chrome.runtime.getURL(`words/${lang}.json`)).then(response => response.json())
       .then(list => list.map(word => ({word, key: lang === 'ko' ? globalThis.Hangul.disassemble(word) : word})))
       .catch(() => []);
-    // 내 단어(my_words.txt)를 앞에 붙인다. 한글이 들어 있으면 한글 키보드, 아니면 영어 키보드에서 추천한다
+    // 내 단어(my_words.txt)는 목록 끝에 붙여 다른 단어와 똑같이 다룬다(따로 앞세우지 않는다). 한글이 들어 있으면 한글 키보드, 아니면 영어 키보드
     const mine = MY_WORDS.filter(word => /[가-힣ㄱ-ㅣ]/.test(word) === (lang === 'ko'))
       .map(word => ({word, key: lang === 'ko' ? globalThis.Hangul.disassemble(word) : word.toLowerCase()}));
-    return wordLists[lang].then(list => [...mine, ...list]);
+    return wordLists[lang].then(list => [...list, ...mine]);
   }
   function refreshWords() {
     const shown = kb.shown, lang = kb.lang;

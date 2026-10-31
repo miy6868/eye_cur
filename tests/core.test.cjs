@@ -305,11 +305,11 @@ test('shortcuts keep config order, accept only http(s) and at most 9', () => {
   assert.equal(SHORTCUTS.length, 0);
 });
 
-test('my words from the server replace the old list and come first without duplicates', () => {
+test('my words from the server replace the old list and are suggested like other words, without duplicates', () => {
   configure({words: ['학교 축제', ' 학교 ', '', 3]});
   assert.deepEqual(MY_WORDS, ['학교 축제', '학교']);
-  const entries = [...MY_WORDS, '학교', '학생'].map(word => ({word, key: word}));
-  assert.deepEqual(suggest(entries, '학', '학'), ['학교 축제', '학교', '학생']);
+  const entries = ['학교', '학생', ...MY_WORDS].map(word => ({word, key: word}));
+  assert.deepEqual(suggest(entries, '학', '학'), ['학교', '학생', '학교 축제']);
   configure({words: []});
   assert.equal(MY_WORDS.length, 0);
 });
