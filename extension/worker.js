@@ -8,6 +8,7 @@ let generation = 0;
 let pageRetryTimer = null, pageRetryAttempt = 0;
 let socketRetryTimer = null, socketRetryAttempt = 0;
 let pairingToken = null;
+let settings = null; // 서버가 켜질 때 보낸 config.toml 값. 새로 붙는 페이지에 start와 함께 넘긴다
 
 function retryPage() {
   if (!enabled || pageRetryTimer !== null) return;
@@ -73,7 +74,7 @@ async function attach(tabId) {
     if (!enabled || expected !== generation) return;
     const nextContext = crypto.randomUUID();
     activeTab = tabId; context = nextContext;
-    await chrome.tabs.sendMessage(tabId, {type: 'start', context: nextContext, calibration: savedCalibration});
+    await chrome.tabs.sendMessage(tabId, {type: 'start', context: nextContext, calibration: savedCalibration, settings});
     if (expected === generation) {
       clearTimeout(pageRetryTimer); pageRetryTimer = null; pageRetryAttempt = 0;
     }
@@ -116,6 +117,7 @@ function connect(token) {
     }
     if (message.type === 'frame') socketRetryAttempt = 0;
     if (message.type === 'status') status = message.message;
+    if (message.type === 'settings') settings = message;
     if (activeTab === null) return;
     const destination = activeTab, destinationContext = context;
     await chrome.tabs.sendMessage(destination, {...message, context: destinationContext}).catch(() => {

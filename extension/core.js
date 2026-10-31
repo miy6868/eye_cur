@@ -1,12 +1,24 @@
 (() => {
   if (globalThis.GazeCore) return;
-  // NearestSelector 설정: 시연하면서 바꿔 볼 숫자는 여기 모아 둔다
-  const DWELL_MS = 300;        // 같은 요소가 이 시간 이상 계속 1등이어야 선택 (머무름)
-  const SWITCH_MARGIN_PX = 30; // 새 1등이 이만큼 더 가까워야 선택을 바꿈 (끈적임)
-  // MouthClick 설정
-  const MOUTH_MIN_MS = 500;       // 이보다 짧게 벌리면 말하는 중으로 보고 무시
-  const MOUTH_MAX_MS = 2000;      // 이보다 오래 벌리면 클릭 대신 'long' → content.js가 메뉴를 연다
-  const MOUTH_COOLDOWN_MS = 800;  // 클릭 직후 연속 클릭 방지
+  // 조정 값. 실제 값은 config.toml에 있고, 서버가 켜질 때 settings 메시지로 보내면 configure()가 덮어쓴다.
+  // 여기 숫자는 서버 값이 오기 전·테스트에서 쓰는 기본값이다(config.toml과 같게 둔다). 각 값의 뜻은 config.toml 주석
+  const SETTINGS = {
+    click: {mode: 'mouth', mouth_min_ms: 500, mouth_max_ms: 2000, mouth_cooldown_ms: 800, eyes_min_ms: 600, eyes_max_ms: 2000, eyes_cooldown_ms: 800},
+    select: {dwell_ms: 300, switch_margin_px: 30},
+    calibration: {lead_ms: 500, settle_ms: 800, collect_ms: 800, min_records: 3, timeout_ms: 2100, max_error: .15},
+    scroll: {band: .25, min_px: 150, max_px: 1200},
+    keyboard: {height: 75},
+  };
+  // 서버가 보낸 값 중 기본값과 같은 종류(숫자·글자)인 것만 받는다. 객체는 그대로 두고 값만 바꿔서 다른 곳이 잡아 둔 참조도 새 값을 본다
+  function configure(values) {
+    for (const [section, keys] of Object.entries(SETTINGS)) {
+      for (const key of Object.keys(keys)) {
+        const value = values?.[section]?.[key];
+        if (typeof value === typeof keys[key] && (typeof value !== 'number' || Number.isFinite(value))) keys[key] = value;
+      }
+    }
+  }
+  const CLICK = SETTINGS.click;
   // 9점 응시 보정 설정
   // 3×3 점을 ㄹ자 순서로 본다. 가장자리 10%: 버튼이 놓이는 곳을 모두 덮으면서 화면 끝에 너무 붙지 않게
   const CALIBRATION_POINTS = [[.1, .1], [.5, .1], [.9, .1], [.9, .5], [.5, .5], [.1, .5], [.1, .9], [.5, .9], [.9, .9]];
@@ -123,11 +135,11 @@
         return null;
       }
       const elapsed = this.started === null ? 0 : time - this.started;
-      const click = elapsed >= 600 && elapsed <= 2000 && time >= this.cooldown ? this.target : null;
+      const click = elapsed >= CLICK.eyes_min_ms && elapsed <= CLICK.eyes_max_ms && time >= this.cooldown ? this.target : null;
       // 'long'(2초 넘게 감음)은 대상이 없어도 알린다: content.js가 메뉴를 연다
-      if (this.started !== null) this.result = click ? 'clicked' : elapsed > 2000 ? 'long' : !this.target ? 'no-target' : elapsed < 600 ? 'short' : 'cooldown';
+      if (this.started !== null) this.result = click ? 'clicked' : elapsed > CLICK.eyes_max_ms ? 'long' : !this.target ? 'no-target' : elapsed < CLICK.eyes_min_ms ? 'short' : 'cooldown';
       this.started = null; this.armedAt = null; this.target = null;
-      if (click) this.cooldown = time + 800;
+      if (click) this.cooldown = time + CLICK.eyes_cooldown_ms;
       return click;
     }
   }
@@ -150,16 +162,16 @@
       }
       if (this.started === null) return null;
       const elapsed = time - this.started;
-      const click = elapsed >= MOUTH_MIN_MS && elapsed <= MOUTH_MAX_MS && time >= this.cooldown ? this.target : null;
-      this.result = click ? 'clicked' : elapsed > MOUTH_MAX_MS ? 'long' : !this.target ? 'no-target' : elapsed < MOUTH_MIN_MS ? 'short' : 'cooldown';
+      const click = elapsed >= CLICK.mouth_min_ms && elapsed <= CLICK.mouth_max_ms && time >= this.cooldown ? this.target : null;
+      this.result = click ? 'clicked' : elapsed > CLICK.mouth_max_ms ? 'long' : !this.target ? 'no-target' : elapsed < CLICK.mouth_min_ms ? 'short' : 'cooldown';
       this.started = null; this.target = null;
-      if (click) this.cooldown = time + MOUTH_COOLDOWN_MS;
+      if (click) this.cooldown = time + CLICK.mouth_cooldown_ms;
       return click;
     }
   }
   // 입을 벌리고 있는 동안 '지금 다물면 무엇이 되는지': 'wait'(너무 짧음) | 'click' | 'menu'. 화면의 진행 고리가 쓴다
   function mouthPhase(elapsed) {
-    return elapsed > MOUTH_MAX_MS ? 'menu' : elapsed >= MOUTH_MIN_MS ? 'click' : 'wait';
+    return elapsed > CLICK.mouth_max_ms ? 'menu' : elapsed >= CLICK.mouth_min_ms ? 'click' : 'wait';
   }
   // 떨림 제거 필터 1: 최근 size개 점의 평균
   class MovingAverage {
@@ -239,10 +251,10 @@
       if (best.id !== this.leader?.id) this.since = now;
       this.leader = best;
       // 0.3초 동안 계속 1등이 아니면 아직 선택하지 않는다 (시선 떨림으로 깜빡이는 것 방지)
-      if (now - this.since < DWELL_MS) return this.selected;
+      if (now - this.since < SETTINGS.select.dwell_ms) return this.selected;
       const current = this.selected && items.find(item => item.id === this.selected.id);
       // 끈적임: 기존 선택이 아직 후보에 있으면 새 1등이 30px 이상 더 가까울 때만 바꾼다
-      if (current && best.distance + SWITCH_MARGIN_PX > current.distance) {
+      if (current && best.distance + SETTINGS.select.switch_margin_px > current.distance) {
         this.selected = current; // 같은 요소라도 최신 위치 정보로 갱신
         return this.selected;
       }
@@ -296,18 +308,17 @@
     while (same < old.length && same < next.length && old[same] === next[same]) same++;
     return {remove: old.length - same, insert: next.slice(same)};
   }
-  // 스크롤 모드: 화면 위·아래 SCROLL_BAND 안을 보면 그쪽으로 스크롤. 끝에 가까울수록 빠르다. 반환값은 초당 px(음수 = 위로)
-  const SCROLL_BAND = .25;
-  const SCROLL_MIN_PX = 150, SCROLL_MAX_PX = 1200;
+  // 스크롤 모드: 화면 위·아래 band 안을 보면 그쪽으로 스크롤. 끝에 가까울수록 빠르다. 반환값은 초당 px(음수 = 위로)
   function scrollSpeed(y) {
-    const depth = y < SCROLL_BAND ? (y - SCROLL_BAND) / SCROLL_BAND : y > 1 - SCROLL_BAND ? (y - 1 + SCROLL_BAND) / SCROLL_BAND : 0;
+    const {band, min_px, max_px} = SETTINGS.scroll;
+    const depth = y < band ? (y - band) / band : y > 1 - band ? (y - 1 + band) / band : 0;
     if (!depth) return 0;
     const amount = Math.min(1, Math.abs(depth));
-    return Math.sign(depth) * (SCROLL_MIN_PX + (SCROLL_MAX_PX - SCROLL_MIN_PX) * amount);
+    return Math.sign(depth) * (min_px + (max_px - min_px) * amount);
   }
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, SCROLL_BAND, mouthPhase, MOUTH_MAX_MS};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, SETTINGS, configure};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

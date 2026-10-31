@@ -1,12 +1,15 @@
 (() => {
   if (globalThis.__gazeInstalled) return;
   globalThis.__gazeInstalled = true;
-  // 클릭 방식: 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 기존 양눈 감기 클릭
-  const CLICK_MODE = 'mouth';
   // true: 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 고친다(클릭 보정). 효과를 아직 측정하지 않아 기본은 끔
   const CLICK_DRIFT = false;
-  const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, MOUTH_MAX_MS} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, SETTINGS, configure} = globalThis.GazeCore;
+  // 조정 값(config.toml → 서버 → settings 메시지). 객체를 잡아 두면 값이 바뀌어도 새 값을 본다
+  const CLICK = SETTINGS.click, CAL = SETTINGS.calibration;
+  // 클릭 방식: config.toml [click] mode. 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 양눈 감기 클릭
+  const usesMouth = () => CLICK.mode !== 'eyes';
+  const seconds = ms => (ms / 1000).toFixed(1);
+  const clickHint = () => usesMouth() ? `입을 ${seconds(CLICK.mouth_min_ms)}~${seconds(CLICK.mouth_max_ms)}초 벌렸다 다무세요` : `양눈을 ${seconds(CLICK.eyes_min_ms)}~${seconds(CLICK.eyes_max_ms)}초 감았다 뜨세요`;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -26,16 +29,10 @@
   let lockGaze = null; // 클릭 대상이 고정되는 순간의 예측 위치(px): 클릭이 끝나면 드리프트 보정에 쓴다
   const GRAPH_MS = 3000;
   const JITTER_MS = 1500;
-  // 9점 응시 보정: 점마다 0.8초는 눈이 옮겨 가는 시간이라 버리고, 0.8초 동안 표본을 모은다. 18번 × 1.6초 ≈ 29초
+  // 9점 응시 보정 시간은 config.toml [calibration] (CAL.settle_ms 등). 기본: 점마다 0.8초는 눈이 옮겨 가는 시간이라 버리고, 0.8초 동안 표본을 모은다.
   // 0.8초인 이유: 눈꺼풀은 눈보다 늦게 내려와서, 아래쪽 점에서는 0.5초가 지나도 시선 값이 계속 바뀌었다.
   // 기록 2개에서 0.8~1초 뒤 값만 쓰면 아래 줄 오차가 줄었다(88→57px, 106→80px)
-  const POINT_SETTLE_MS = 800;
-  const POINT_COLLECT_MS = 800;
-  const POINT_MIN_RECORDS = 3;    // 눈을 감아 표본이 이보다 적으면 조금 더 기다린다
-  const POINT_TIMEOUT_MS = 2100;  // 그래도 이 시간이 지나면 다음 점으로: 18번 × 2.1초라도 40초를 넘지 않는다
-  // 보정을 켜면 첫 점이 (서버·모델 준비와 상관없이) 바로 한 번 작아지며 눈길을 끈다. 그 뒤 이만큼은 더 기다렸다가 첫 점 시계를 시작한다:
-  // 팝업을 보던 사용자가 화면을 찾아 첫 점으로 눈을 옮길 시간
-  const CALIBRATION_LEAD_MS = 500;
+  // 보정을 켜면 첫 점이 (서버·모델 준비와 상관없이) 바로 한 번 작아지며 눈길을 끌고, 그 뒤 CAL.lead_ms 더 기다렸다가 첫 점 시계를 시작한다
   // 저장된 보정이 어떤 시선 모델·방식으로 만들어졌는지 표시: 둘 중 하나라도 바뀌면 예전 보정은 이어 쓰지 않고 다시 보정한다
   // (GazeTR과 UniGaze는 같은 곳을 봐도 출력 각도가 달라서, 예전 보정 계수를 그대로 쓰면 엉뚱한 곳을 가리킨다)
   const CALIBRATION_METHOD = 'unigaze-points9';
@@ -99,7 +96,8 @@
   function stop(message) { end(message); send({type: 'stop', reason: message}); }
   function geometry() { return [innerWidth, innerHeight, screenX, screenY, devicePixelRatio, visualViewport?.scale || 1].join(','); }
   function start(message = {}) {
-    end(); currentContext = message.context; running = true; model = null; resetFilter(); clicker = CLICK_MODE === 'mouth' ? new MouthClick() : new Blink();
+    if (message.settings) configure(message.settings);
+    end(); currentContext = message.context; running = true; model = null; resetFilter(); clicker = usesMouth() ? new MouthClick() : new Blink();
     ids = new WeakMap(); idNumber = 0; lastStatus = ''; lastFrame = performance.now();
     layout = geometry();
     const saved = message.calibration;
@@ -109,7 +107,7 @@
     // 클릭 보정을 껐으면 예전에 저장된 오프셋도 쓰지 않는다
     if (model && !CLICK_DRIFT) delete model.offset;
     // step: 몇 번째 점인지(0~17), records: 지금 점에서 모은 기록, log: 서버에 남길 모든 기록
-    calibration = model ? null : {shownAt: null, earliest: performance.now() + POINT_SETTLE_MS + CALIBRATION_LEAD_MS, step: 0, records: [], log: [],
+    calibration = model ? null : {shownAt: null, createdAt: performance.now(), step: 0, records: [], log: [],
       points: CALIBRATION_POINTS.map(target => ({target, medians: []}))};
     host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
@@ -158,7 +156,7 @@
       .band{position:fixed;left:0;right:0;height:25vh;background:#176cff30;display:flex;align-items:center;justify-content:center;font:700 6vh system-ui;text-shadow:0 2px 6px #000}
       .up{top:0}.down{bottom:0}
       .hint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#0b1220cc;border-radius:1.5vh;padding:1.5vh 3vh;font:600 3vh system-ui}
-      .keys{position:fixed;left:0;right:0;height:75vh;background:#0b1220f2;display:flex;flex-direction:column;gap:1vh;padding:1.2vh 1vw;pointer-events:auto}
+      .keys{position:fixed;left:0;right:0;background:#0b1220f2;display:flex;flex-direction:column;gap:1vh;padding:1.2vh 1vw;pointer-events:auto}
       .keys.bottom{bottom:0}.keys.top{top:0}
       .preview{flex:.55;display:flex;align-items:center;background:#ffffff14;border-radius:1.5vh;padding:0 2vh;font:500 3.2vh system-ui;white-space:nowrap;overflow:hidden}
       .row{flex:1;display:flex;gap:.7vw}
@@ -198,8 +196,8 @@
     const [x, y] = CALIBRATION_POINTS[CALIBRATION_ORDER[calibration.step]];
     const dot = shadow.querySelector('#dot');
     dot.style.left = `${x * 100}vw`; dot.style.top = `${y * 100}vh`;
-    // 크게 나타나 작아지는 점이 눈을 끌어당긴다. 작아지는 0.8초가 눈이 옮겨 가는 시간(POINT_SETTLE_MS)이다
-    dot.animate([{transform: 'translate(-50%,-50%) scale(3)'}, {transform: 'translate(-50%,-50%) scale(1)'}], POINT_SETTLE_MS);
+    // 크게 나타나 작아지는 점이 눈을 끌어당긴다. 작아지는 시간이 눈이 옮겨 가는 시간(CAL.settle_ms)이다
+    dot.animate([{transform: 'translate(-50%,-50%) scale(3)'}, {transform: 'translate(-50%,-50%) scale(1)'}], CAL.settle_ms);
     // 다음 점 자리를 회색 점선 원으로 미리 보여 준다: 처음 쓰는 사용자도 점이 어디로 갈지 안다
     // 같은 점을 한 번 더 볼 때(바퀴가 바뀔 때)는 원이 지금 점을 둘러싸서 "그대로 보라"는 뜻이 된다
     const next = CALIBRATION_ORDER[calibration.step + 1];
@@ -212,19 +210,20 @@
     if (calibration.shownAt === null) {
       // 카메라가 늦게 켜져도 첫 점 시간이 먼저 흐르지 않도록 첫 시선 결과에서 시계를 시작한다
       if (!Array.isArray(frame.gaze)) return;
-      if (now < calibration.earliest) { status('곧 보정을 시작합니다 · 초록 점을 바라보세요'); return; }
+      if (now < calibration.createdAt + CAL.settle_ms + CAL.lead_ms) { status('곧 보정을 시작합니다 · 초록 점을 바라보세요'); return; }
       calibration.shownAt = now;
     }
     // record.time은 점이 나타난 뒤 촬영까지 걸린 시간. 눈이 아직 옮겨 가는 중인 앞부분은 버린다
     const record = gazeRecord(frame, now, calibration.shownAt);
-    if (record && record.time >= POINT_SETTLE_MS) {
+    if (record && record.time >= CAL.settle_ms) {
       annotate(record, frame);
       calibration.records.push(record);
     }
     status(`시선 보정 중 · ${calibration.step + 1}/${CALIBRATION_ORDER.length} · 점이 작아지면 가운데를 바라보세요`);
     const elapsed = now - calibration.shownAt;
-    const enough = elapsed >= POINT_SETTLE_MS + POINT_COLLECT_MS && calibration.records.length >= POINT_MIN_RECORDS;
-    if (!enough && elapsed < POINT_TIMEOUT_MS) return;
+    // 눈을 감아 표본이 min_records보다 적으면 조금 더 기다리고, timeout_ms가 지나면 그래도 다음 점으로
+    const enough = elapsed >= CAL.settle_ms + CAL.collect_ms && calibration.records.length >= CAL.min_records;
+    if (!enough && elapsed < CAL.timeout_ms) return;
     finishPoint();
     if (calibration.step < CALIBRATION_ORDER.length) { showPoint(now); return; }
     learn();
@@ -279,7 +278,7 @@
     send({type: 'calibrationLog', screen: [innerWidth, innerHeight], method: CALIBRATION_METHOD,
       crossError: rms, errorPixels: pixelRms, points: calibration.points, records: calibration.log});
     if (!Number.isFinite(rms)) { calibrationFailed('시선 좌표 계산에 실패했습니다. 다시 보정해 주세요.'); return; }
-    if (rms > .15) {
+    if (rms > CAL.max_error) {
       // 학습은 끝났으니 버리지 않고, 오차를 보여 준 뒤 사용자가 계속할지 고르게 한다
       calibration.result = {rms, pixelRms};
       const message = `점 오차 약 ${pixelRms}px로 기준보다 큽니다. 그래도 사용하거나 다시 보정하세요.`;
@@ -302,7 +301,7 @@
     send({type: 'calibrated', model, layout});
     // 상태 줄은 다음 프레임에 바로 바뀌므로 보정 결과는 따로 계속 보여 준다
     shadow.querySelector('#quality').textContent = `보정 결과: 점 오차 약 ${pixelRms}px`;
-    status(`준비됨 · 9점 보정 · 점 오차 약 ${pixelRms}px · ${CLICK_HINT}.`);
+    status(`준비됨 · 9점 보정 · 점 오차 약 ${pixelRms}px · ${clickHint()}.`);
   }
   function calibrationFailed(message) {
     running = false; clearInterval(timer); invalidate();
@@ -458,20 +457,20 @@
     if (clicker.active) {
       scrollVelocity = 0;
       showTarget(mode === 'scroll' ? scrollExit : selected);
-      if (CLICK_MODE === 'mouth') { mouthStatus(message.time); showTimer(message.time - clicker.started); }
+      if (usesMouth()) { mouthStatus(message.time); showTimer(message.time - clicker.started); }
       else if (clicker.started === null) status(selected ? '눈 감기 시작 · 클릭 대상 고정' : '선택된 대상 없음 · 먼저 초록 테두리를 확인하세요.');
       else {
         const elapsed = message.time - clicker.started;
-        status(elapsed > 2000 ? menuHint() : !clicker.target ? '눈 감기 감지됨 · 대상 없음 · 2초 넘게 감으면 메뉴' : `대상 고정 · 눈 감기 ${(elapsed / 1000).toFixed(1)}초 · 0.6~2.0초 안에 뜨세요`);
+        status(elapsed > CLICK.eyes_max_ms ? menuHint() : !clicker.target ? `눈 감기 감지됨 · 대상 없음 · ${seconds(CLICK.eyes_max_ms)}초 넘게 감으면 메뉴` : `대상 고정 · 눈 감기 ${seconds(elapsed)}초 · ${clickHint()}`);
       }
       return;
     }
     if (clicked) { click(clicked); return; }
     // 2초 넘게 벌렸다(감았다) 끝내면 메뉴를 연다. 메뉴가 떠 있으면 닫는다
     if (clicker.result === 'long') setMode(mode === 'menu' ? null : 'menu');
-    else if (CLICK_MODE === 'mouth') mouthResult();
+    else if (usesMouth()) mouthResult();
     else if (clicker.result === 'no-target') status('눈 감기는 인식됐지만 선택된 대상이 없습니다.');
-    else if (clicker.result === 'short') status('짧은 깜빡임 · 클릭하려면 0.6초 이상 감아 주세요.');
+    else if (clicker.result === 'short') status(`짧은 깜빡임 · 클릭하려면 ${seconds(CLICK.eyes_min_ms)}초 이상 감아 주세요.`);
     if (!message.gaze) return;
     const point = predict(model, message.gaze);
     // 계산 실패나 화면 밖 멀리(10% 넘게)는 버린다
@@ -490,9 +489,9 @@
   }
   function mouthStatus(time) {
     const elapsed = time - clicker.started;
-    if (elapsed > 2000) status(menuHint());
-    else if (!clicker.target) status('입 벌림 감지 · 대상 없음 · 2초 넘게 벌리면 메뉴');
-    else status(`대상 고정 · 입 벌림 ${(elapsed / 1000).toFixed(1)}초 · 0.5~2.0초 안에 다무세요`);
+    if (elapsed > CLICK.mouth_max_ms) status(menuHint());
+    else if (!clicker.target) status(`입 벌림 감지 · 대상 없음 · ${seconds(CLICK.mouth_max_ms)}초 넘게 벌리면 메뉴`);
+    else status(`대상 고정 · 입 벌림 ${seconds(elapsed)}초 · ${clickHint()}`);
   }
   // 입 벌림 진행 고리: 벌린 순간의 커서 자리에 두고, 지금 다물면 무엇이 되는지 색과 글자로 보여 준다
   function showTimer(elapsed) {
@@ -501,7 +500,7 @@
     const phase = mouthPhase(elapsed);
     timer.className = phase === 'click' && !target ? 'none' : phase;
     timer.style.left = `${x}px`; timer.style.top = `${y}px`;
-    timer.style.setProperty('--p', `${Math.min(1, elapsed / MOUTH_MAX_MS) * 360}deg`);
+    timer.style.setProperty('--p', `${Math.min(1, elapsed / CLICK.mouth_max_ms) * 360}deg`);
     shadow.querySelector('#timerLabel').textContent = phase === 'wait' ? '…' : phase === 'menu' ? (mode === 'menu' ? '메뉴 닫기' : '메뉴') :
       !target ? '대상 없음' : target === scrollExit ? '스크롤 끝' : '클릭';
     timer.hidden = false;
@@ -509,7 +508,7 @@
   function menuHint() { return mode === 'menu' ? '지금 끝내면 메뉴를 닫습니다' : '지금 끝내면 메뉴를 엽니다'; }
   function mouthResult() {
     if (clicker.result === 'no-target') status('입 벌림은 인식됐지만 선택된 대상이 없습니다.');
-    else if (clicker.result === 'short') status('짧게 벌림(말하기 등)은 무시합니다 · 클릭하려면 0.5초 이상 벌려 주세요.');
+    else if (clicker.result === 'short') status(`짧게 벌림(말하기 등)은 무시합니다 · 클릭하려면 ${seconds(CLICK.mouth_min_ms)}초 이상 벌려 주세요.`);
   }
   function resetFilter() {
     smooth = null; scrollVelocity = 0; // 시선을 잃으면 스크롤도 멈춘다
@@ -565,10 +564,10 @@
   function chooseNearest(now) {
     const item = nearest.update(candidates(...smooth), now);
     // 머무름 0.3초가 지나기 전에는 선택이 없으므로 테두리를 그리지 않는다
-    if (!item) { status(mode ? '버튼을 0.3초 이상 바라보세요.' : '대상을 0.3초 이상 바라보세요.'); return; }
+    if (!item) { status(`${mode ? '버튼' : '대상'}을 ${seconds(SETTINGS.select.dwell_ms)}초 이상 바라보세요.`); return; }
     selected = item;
     showTarget(selected);
-    status(`선택: ${item.name || item.role} · ${CLICK_HINT}.`);
+    status(`선택: ${item.name || item.role} · ${clickHint()}.`);
   }
   // ── 메뉴·스크롤·탭·키보드 ──
   // 입을 2초 넘게 벌렸다 다물면 메뉴. 띄운 버튼도 페이지 요소처럼 후보가 되어 같은 방법(바라보기 + 입 클릭)으로 누른다.
@@ -662,6 +661,7 @@
     // 입력칸이 화면 아래쪽에 있으면(디스코드 등) 키보드를 위에 띄워 칸이 가려지지 않게 한다
     const box = ready && target.getBoundingClientRect();
     const board = make('div', `keys ${ready && box.y + box.height / 2 > innerHeight / 2 ? 'top' : 'bottom'}`);
+    board.style.height = `${SETTINGS.keyboard.height}vh`; // config.toml [keyboard] height
     board.append(make('div', 'preview', ready ? previewText(target) : '입력칸을 먼저 선택하세요 · 키보드 밖 페이지에서 입력칸을 바라보고 클릭'));
     const words = make('div', 'row');
     for (let i = 0; i < 5; i++) words.append(kb.suggestions[i] ? make('button', 'word', kb.suggestions[i], () => pickWord(kb.suggestions[i])) : make('div', 'empty'));
@@ -749,6 +749,12 @@
     if (message.type !== 'start' && message.type !== 'suspend') reply?.({ok: true});
     if (message.type === 'start') { start(message); reply?.({ok: true}); return; }
     if (message.context !== currentContext) return;
+    // 서버가 켜질 때 보내는 config.toml 값. 클릭 방식이 바뀌었으면 클릭 판정기도 바꾼다
+    if (message.type === 'settings') {
+      configure(message);
+      if (clicker && !clicker.active && usesMouth() !== clicker instanceof MouthClick) clicker = usesMouth() ? new MouthClick() : new Blink();
+      return;
+    }
     if (message.type === 'suspend') { end(); reply?.({ok: true}); return; }
     if (message.type === 'stopped') { end(message.message); return; }
     if (!running) return;
