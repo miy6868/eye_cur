@@ -88,6 +88,11 @@
     for (let i = 0; i < remove; i++) document.execCommand('delete');
     if (insert) document.execCommand('insertText', false, insert);
   }
+  // 초점이 있는 입력칸 내용을 모두 지운다. 사람이 Ctrl+A → Delete 한 것과 같아서 편집기도 받아들이고 Ctrl+Z로 되돌릴 수 있다
+  function clear() {
+    document.execCommand('selectAll');
+    document.execCommand('delete');
+  }
   // 엔터: 사이트가 keydown을 처리하면(디스코드 보내기 등) 그것으로 끝. 아니면 입력칸은 폼 제출, 여러 줄 칸은 줄바꿈
   function enter(element) {
     const init = {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true};
@@ -107,5 +112,5 @@
     }
     return document.scrollingElement;
   }
-  globalThis.GazeDOM = {collect, unchanged, available, regions, press, editable, type, enter, scroller};
+  globalThis.GazeDOM = {collect, unchanged, available, regions, press, editable, type, clear, enter, scroller};
 })();

@@ -160,13 +160,14 @@
       .band{position:fixed;left:0;right:0;height:25vh;background:#176cff30;display:flex;align-items:center;justify-content:center;font:700 6vh system-ui;text-shadow:0 2px 6px #000}
       .up{top:0}.down{bottom:0}
       .hint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#0b1220cc;border-radius:1.5vh;padding:1.5vh 3vh;font:600 3vh system-ui}
-      .keys{position:fixed;left:0;right:0;height:62vh;background:#0b1220f2;display:flex;flex-direction:column;gap:1vh;padding:1.2vh 1vw;pointer-events:auto}
+      .keys{position:fixed;left:0;right:0;height:75vh;background:#0b1220f2;display:flex;flex-direction:column;gap:1vh;padding:1.2vh 1vw;pointer-events:auto}
       .keys.bottom{bottom:0}.keys.top{top:0}
       .preview{flex:.55;display:flex;align-items:center;background:#ffffff14;border-radius:1.5vh;padding:0 2vh;font:500 3.2vh system-ui;white-space:nowrap;overflow:hidden}
       .row{flex:1;display:flex;gap:.7vw}
       .row>*{flex:1}
       #overlay .word{font-size:3.6vh;background:#123f36}
-      #overlay .space{flex:3}
+      #overlay .space{flex:2}
+      #overlay .clear{white-space:normal;word-break:keep-all}
       #overlay .on{background:#176cff}
       .empty{border-radius:2vh;background:#ffffff08}
       </style>
@@ -704,7 +705,8 @@
       make('button', '', kb.lang === 'ko' ? '한→영' : '영→한', () => { resetComposition(); kb.lang = kb.lang === 'ko' ? 'en' : 'ko'; kb.symbols = false; kb.shift = false; loadWords(kb.lang); render(); }),
       make('button', 'space', '스페이스', () => { if (!typingTarget()) return; resetComposition(); GazeDOM.type(0, ' '); render(); }),
       make('button', '', '⏎ 엔터', () => { const target = typingTarget(); if (!target) return; resetComposition(); GazeDOM.enter(target); render(); }),
-      make('button', '', '✕ 닫기', () => setMode(null)));
+      make('button', '', '✕ 닫기', () => setMode(null)),
+      make('button', 'clear', '모두 삭제', () => { if (!typingTarget()) return; resetComposition(); GazeDOM.clear(); render(); }));
     board.append(controls);
     return board;
   }
