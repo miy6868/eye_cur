@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "UniGaze + Jev · CPU",
-  "version": "0.2.8",
+  "version": "0.3.0",
   "description": "시선으로 선택하고 입을 벌렸다 다물어 클릭합니다. 로컬 CPU 서버가 필요합니다.",
   "minimum_chrome_version": "116",
   "permissions": ["activeTab", "scripting", "storage", "power"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": {"service_worker": "worker.js"},
   "content_scripts": [{"matches": ["http://*/*", "https://*/*"], "all_frames": true, "js": ["core.js", "dom.js", "frame.js"]}],
+  "web_accessible_resources": [{"resources": ["words/*.json"], "matches": ["http://*/*", "https://*/*"]}],
   "action": {"default_popup": "popup.html", "default_title": "Gaze + Jev"}
 }

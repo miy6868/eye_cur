@@ -27,7 +27,9 @@ function harness(stored = {}) {
     runtime: {onMessage: event('message')},
     tabs: {
       get: async id => ({...tabs.get(id), active: id === selected}),
-      query: async () => [{...tabs.get(selected), active: true}],
+      // windowId로 물으면(탭 고르기 화면) 그 창의 탭 전체, 아니면 지금 보이는 탭 하나
+      query: async query => query?.windowId ? [...tabs.values()].map(tab => ({...tab, title: `탭${tab.id}`, active: tab.id === selected})) : [{...tabs.get(selected), active: true}],
+      update: async (id, props) => { if (props.active) { selected = id; handlers.activated({tabId: id, windowId: 1}); } return tabs.get(id); },
       sendMessage: async (tabId, message, options) => {
         if (failSend) { failSend = false; throw new Error('Could not establish connection. Receiving end does not exist.'); }
         sent.push({tabId, ...message, ...options}); return {ok: true};
@@ -264,4 +266,17 @@ test('frameRelay forwards only collect/click to the active tab frame, from the c
   await h.message({type: 'frameRelay', context, frameId: 7, request: {type: 'start'}}, {tab: {id: 1}});
   await h.message({type: 'frameRelay', context: 'old', frameId: 7, request: {type: 'frameClick'}}, {tab: {id: 1}});
   assert.equal(h.sent.length, count);
+});
+
+test('tab picker lists only web tabs of the window and switches to the chosen one', async () => {
+  const h = harness(); await h.message({type: 'start', tabId: 1, token: 'test'}); h.sockets[0].open();
+  const a = h.current(), sender = {tab: {id: 1, windowId: 1}};
+  const list = await h.message({type: 'listTabs', context: a.context}, sender);
+  assert.deepEqual(list.map(tab => tab.id), [1, 2]); // chrome:// 탭(3)은 가면 돌아올 수 없어 뺀다
+  assert.equal(list[0].active, true);
+  assert.equal(await h.message({type: 'listTabs', context: 'old'}, sender), undefined);
+  assert.equal(await h.message({type: 'switchTab', context: a.context, tabId: 2}, sender), true);
+  await h.flush();
+  assert.equal(h.current().tabId, 2);
+  assert.notEqual(h.current().context, a.context);
 });

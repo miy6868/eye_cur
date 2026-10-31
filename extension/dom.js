@@ -76,5 +76,36 @@
     element.dispatchEvent(new MouseEvent('mouseup', init));
     element.click();
   }
-  globalThis.GazeDOM = {collect, unchanged, available, regions, press};
+  // 가상 키보드가 글자를 넣을 수 있는 칸인지
+  function editable(element) {
+    if (!element || element.disabled || element.readOnly) return false;
+    if (element.isContentEditable || element.tagName === 'TEXTAREA') return true;
+    return element.tagName === 'INPUT' && ['text', 'search', 'email', 'url', 'tel', 'password', 'number'].includes(element.type);
+  }
+  // 초점이 있는 입력칸에서 remove글자를 지우고 insert를 넣는다. execCommand는 사람이 친 것처럼 input 이벤트를 내서
+  // React(값 직접 대입은 무시함)·디스코드 같은 contenteditable 편집기도 받아들인다
+  function type(remove, insert) {
+    for (let i = 0; i < remove; i++) document.execCommand('delete');
+    if (insert) document.execCommand('insertText', false, insert);
+  }
+  // 엔터: 사이트가 keydown을 처리하면(디스코드 보내기 등) 그것으로 끝. 아니면 입력칸은 폼 제출, 여러 줄 칸은 줄바꿈
+  function enter(element) {
+    const init = {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true};
+    const handled = !element.dispatchEvent(new KeyboardEvent('keydown', init));
+    element.dispatchEvent(new KeyboardEvent('keyup', init));
+    if (handled) return;
+    if (element.tagName === 'INPUT') element.form?.requestSubmit();
+    else document.execCommand('insertLineBreak');
+  }
+  // (x, y) 아래에서 direction(양수 = 아래) 쪽으로 더 스크롤할 수 있는 가장 안쪽 상자. 없으면 페이지 전체
+  // shortcut: iframe 안(네이버 지도 목록 등)은 스크롤하지 못한다. 필요하면 frameRelay에 frameScroll을 더한다
+  function scroller(x, y, direction) {
+    for (let element = document.elementFromPoint(x, y); element && element !== document.documentElement; element = element.parentElement) {
+      if (!/auto|scroll|overlay/.test(getComputedStyle(element).overflowY)) continue;
+      const room = direction > 0 ? element.scrollHeight - element.clientHeight - element.scrollTop : element.scrollTop;
+      if (room > 1) return element;
+    }
+    return document.scrollingElement;
+  }
+  globalThis.GazeDOM = {collect, unchanged, available, regions, press, editable, type, enter, scroller};
 })();
