@@ -8,7 +8,7 @@
 - 변경 후 두 명령이 통과해야 한다:
   - `node --test tests/core.test.cjs tests/worker.test.cjs`
   - `.venv/bin/python -m unittest discover -s tests -p 'test_*.py'` (카메라 선택 출력이 섞여 나오는 것은 정상. 마지막 `OK`만 확인)
-- 한 번에 한 단계만 하고, 끝나면 사용자가 확인할 방법을 알려준 뒤 git 커밋한다. `git add -A` 대신 바꾼 파일만 add한다(편집기 임시 파일이 섞인 적이 있다).
+- 작업이 끝난 후 사용자가 확인할 방법을 알려준 뒤 git 커밋한 후 git 커밋했다고 간단히 명시적으로 사용자에게 알려준다. `git add -A` 대신 바꾼 파일만 add한다(편집기 임시 파일이 섞인 적이 있다).
 - 기능을 바꾸면 이 파일의 지도·상수 표와 README의 해당 부분도 같이 고친다.
 
 ## 전체 흐름
