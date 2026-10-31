@@ -85,7 +85,7 @@
 | 눈 감는 중/감음/다시 뜸(뜬 눈 대비) | `backend/gestures.py` `EYE_CLOSING`/`EYE_CLOSED`/`EYE_REOPEN` | 0.60 / 0.50 / 0.62 |
 | 입 클릭 시간·쿨다운 | `extension/core.js` `MOUTH_MIN_MS`/`MOUTH_MAX_MS`/`MOUTH_COOLDOWN_MS` | 500 / 2000 / 800ms (MAX 넘으면 메뉴) |
 | 스크롤 띠·속도 | `extension/core.js` `SCROLL_BAND`/`SCROLL_MIN_PX`/`SCROLL_MAX_PX` | 화면 위·아래 25% / 초당 150~1200px |
-| 키보드·메뉴 크기 | `extension/content.js` 스타일 `.keys{height}`, `#overlay button{font}` | 화면 62% / 글자 4.4vh |
+| 키보드·메뉴 크기 | `extension/content.js` 스타일 `.keys{height}`, `#overlay button{font}` | 화면 75% (시선 상하 정확도가 낮아 키를 세로로 길게) / 글자 4.4vh |
 | 탭 카드 수, 추천 수 | `extension/content.js` `TABS_PER_PAGE`, `core.js` `suggest`의 `count` | 8 / 5 |
 | 눈 클릭 시간 | `extension/core.js` `Blink` 안 숫자 | 600~2000ms, 쿨다운 800 |
 | 선택 머무름·끈적임 | `extension/core.js` `DWELL_MS`/`SWITCH_MARGIN_PX` | 300ms / 30px |
