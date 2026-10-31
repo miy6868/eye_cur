@@ -2,17 +2,19 @@
 from collections import deque
 import math
 
-# 입 벌림 비율(MAR) 문턱값. 두 값을 다르게 둬야 경계 근처에서 상태가 왔다 갔다 하지 않는다
-# 처음엔 0.30/0.20이었는데 입을 꽤 크게 벌려야 해서 낮췄다. 말할 때 잠깐 벌어지는 입은
-# 확장의 MouthClick이 0.5초보다 짧은 벌림을 무시해서 걸러진다
-MOUTH_OPEN_MAR = 0.20    # 이보다 커지면 '벌림'
-MOUTH_CLOSED_MAR = 0.12  # 이보다 작아지면 '다뭄'
-# 눈 열림 문턱값: 평소 뜬 눈(기준) 대비 비율이고, 두 눈이 모두 넘어야 한다(한쪽 윙크는 무시)
+from backend.config import CONFIG
+
+# 입 벌림 비율(MAR) 문턱값: config.toml [mouth]. 두 값을 다르게 둬야 경계 근처에서 상태가 왔다 갔다 하지 않는다
+# 처음엔 0.30/0.20이었는데 입을 꽤 크게 벌려야 해서 0.20/0.12로 낮췄다. 말할 때 잠깐 벌어지는 입은
+# 확장의 MouthClick이 짧은 벌림을 무시해서 걸러진다
+MOUTH_OPEN_MAR = CONFIG["mouth"]["open_mar"]
+MOUTH_CLOSED_MAR = CONFIG["mouth"]["closed_mar"]
+# 눈 열림 문턱값: config.toml [eyes]. 평소 뜬 눈(기준) 대비 비율이고, 두 눈이 모두 넘어야 한다(한쪽 윙크는 무시)
 # 처음엔 감는 중 0.78 / 감음 0.70 / 다시 뜸 0.80이었다. 보정 기록을 보니 아래쪽을 볼 때 눈꺼풀이 내려와
-# 평소에도 0.66~0.8까지 내려가서, 눈을 뜨고 있는데 '감는 중'으로 시선이 자주 멈췄다. 그래서 크게 낮췄다
-EYE_CLOSING = 0.60  # 이보다 작으면 '감는 중': 이 동안은 시선 값을 쓰지 않는다
-EYE_CLOSED = 0.50   # 이보다 작으면 '감음'(눈 감기 클릭 모드용)
-EYE_REOPEN = 0.62   # 감은 뒤 이보다 커지면 다시 뜬 것. 아래쪽을 보는 눈(약 0.7)도 뜬 것으로 본다
+# 평소에도 0.66~0.8까지 내려가서, 눈을 뜨고 있는데 '감는 중'으로 시선이 자주 멈췄다. 그래서 0.60/0.50/0.62로 낮췄다
+EYE_CLOSING = CONFIG["eyes"]["closing"]
+EYE_CLOSED = CONFIG["eyes"]["closed"]
+EYE_REOPEN = CONFIG["eyes"]["reopen"]
 # MediaPipe FaceMesh 번호: 13 = 윗입술 안쪽 가운데, 14 = 아랫입술 안쪽 가운데, 61·291 = 양쪽 입꼬리
 LIP_TOP, LIP_BOTTOM, MOUTH_LEFT, MOUTH_RIGHT = 13, 14, 61, 291
 

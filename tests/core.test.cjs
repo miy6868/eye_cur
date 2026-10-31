@@ -1,6 +1,7 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase} = require('../extension/core.js');
+const fs = require('node:fs');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, SETTINGS, configure} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -285,6 +286,19 @@ test('mouthPhase tells what closing the mouth would do now', () => {
   assert.equal(mouthPhase(2100), 'menu');
 });
 
+test('configure takes config.toml values of the right type and click timing follows them', () => {
+  const saved = structuredClone(SETTINGS);
+  try {
+    configure({click: {mouth_min_ms: 300, mouth_max_ms: '9', mode: 'eyes'}, select: {dwell_ms: NaN}, unknown: {x: 1}});
+    assert.equal(SETTINGS.click.mouth_min_ms, 300);
+    assert.equal(SETTINGS.click.mouth_max_ms, 2000); // 글자로 온 숫자는 받지 않는다
+    assert.equal(SETTINGS.click.mode, 'eyes');
+    assert.equal(SETTINGS.select.dwell_ms, 300);
+    assert.equal(mouthPhase(350), 'click');
+  } finally { configure(saved); }
+  assert.equal(mouthPhase(350), 'wait');
+});
+
 test('suggest matches by jamo prefix, typed syllables first, and skips the exact word', () => {
   const entries = [['하고', 'ㅎㅏㄱㅗ'], ['학교', 'ㅎㅏㄱㄱㅛ'], ['학', 'ㅎㅏㄱ'], ['하나', 'ㅎㅏㄴㅏ'], ['you', 'you']].map(([word, key]) => ({word, key}));
   assert.deepEqual(suggest(entries, 'ㅎㅏㄱ', '학'), ['학교', '하고']); // '학'으로 시작하는 단어가 먼저
@@ -307,4 +321,16 @@ test('scrollSpeed is zero in the middle and faster toward the edges', () => {
   assert.ok(scrollSpeed(0) < scrollSpeed(.2));
   assert.equal(scrollSpeed(-.1), scrollSpeed(0)); // 화면 밖은 최고 속도로 자른다
   assert.equal(scrollSpeed(1), -scrollSpeed(0));
+});
+
+test('core.js default settings match config.toml (the two must change together)', () => {
+  // 작은 TOML 읽기: [섹션] 아래 '키 = 숫자 또는 "글자"' 줄만 본다
+  let section; const toml = {};
+  for (const line of fs.readFileSync('config.toml', 'utf8').split('\n')) {
+    const head = line.match(/^\[(\w+)\]/);
+    if (head) { section = toml[head[1]] = {}; continue; }
+    const pair = line.match(/^(\w+)\s*=\s*("[^"]*"|[\d.]+)/);
+    if (pair && section) section[pair[1]] = JSON.parse(pair[2]);
+  }
+  for (const [name, keys] of Object.entries(SETTINGS)) assert.deepEqual(keys, toml[name], name);
 });

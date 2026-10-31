@@ -10,6 +10,8 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
+from backend.config import CONFIG
+
 ROOT = Path(__file__).resolve().parents[1]
 runtime_path = ROOT / "runtime.json"
 # 보정 분석용 기록. 한 줄에 보정 한 번 (시선 값·점 위치·검증 결과, 카메라 이미지는 없음)
@@ -82,6 +84,8 @@ async def socket(ws: WebSocket):
                 await ws.close()
 
     try:
+        # 확장이 쓰는 조정 값(config.toml). 워커가 기억했다가 새로 붙는 페이지에도 넘긴다
+        await send({"type": "settings", **{name: CONFIG.get(name, {}) for name in ("click", "select", "calibration", "scroll", "keyboard")}})
         await send({"type": "status", "message": "CPU 모델과 카메라 준비 중…"})
         from backend.tracker import Tracker
         tracker = await loop.run_in_executor(executor, Tracker)

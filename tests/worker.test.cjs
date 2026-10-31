@@ -275,3 +275,12 @@ test('tab picker lists only web tabs of the window and switches to the chosen on
   assert.equal(h.current().tabId, 2);
   assert.notEqual(h.current().context, a.context);
 });
+
+test('server settings are forwarded to the page and handed to pages attached later', async () => {
+  const h = harness(); await h.message({type: 'start', tabId: 1, token: 'test'}); h.sockets[0].open();
+  await h.sockets[0].receive({type: 'settings', click: {mouth_min_ms: 400}});
+  assert.equal(h.sent.filter(m => m.type === 'settings').at(-1).tabId, 1);
+  await h.activate(2);
+  assert.equal(h.current().tabId, 2);
+  assert.equal(h.current().settings.click.mouth_min_ms, 400);
+});

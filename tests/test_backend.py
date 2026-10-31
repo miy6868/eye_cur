@@ -34,6 +34,9 @@ class SocketTests(unittest.TestCase):
         with patch.dict('sys.modules', {'backend.tracker': SimpleNamespace(Tracker=FakeTracker)}):
             with self.client.websocket_connect('/ws', headers={'origin': 'chrome-extension://test'}) as ws:
                 ws.send_json({'token': server.TOKEN})
+                settings = ws.receive_json()
+                self.assertEqual(settings['type'], 'settings')
+                self.assertEqual(settings['click']['mode'], 'mouth')
                 self.assertEqual(ws.receive_json()['type'], 'status')
                 self.assertEqual(ws.receive_json()['type'], 'status')
                 self.assertEqual(ws.receive_json()['type'], 'frame')
@@ -53,7 +56,7 @@ class SocketTests(unittest.TestCase):
                  patch.dict('sys.modules', {'backend.tracker': SimpleNamespace(Tracker=FakeTracker)}):
                 with self.client.websocket_connect('/ws', headers={'origin': 'chrome-extension://test'}) as ws:
                     ws.send_json({'token': server.TOKEN})
-                    ws.receive_json(); ws.receive_json()
+                    ws.receive_json(); ws.receive_json(); ws.receive_json()
                     ws.send_json({'type': 'calibrationLog', 'lag': 100})
                     ws.send_json({'type': 'stop'})
                     with self.assertRaises(WebSocketDisconnect):
