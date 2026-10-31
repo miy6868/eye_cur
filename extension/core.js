@@ -157,6 +157,10 @@
       return click;
     }
   }
+  // 입을 벌리고 있는 동안 '지금 다물면 무엇이 되는지': 'wait'(너무 짧음) | 'click' | 'menu'. 화면의 진행 고리가 쓴다
+  function mouthPhase(elapsed) {
+    return elapsed > MOUTH_MAX_MS ? 'menu' : elapsed >= MOUTH_MIN_MS ? 'click' : 'wait';
+  }
   // 떨림 제거 필터 1: 최근 size개 점의 평균
   class MovingAverage {
     constructor(size) { this.size = size; this.reset(); }
@@ -304,6 +308,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, SCROLL_BAND};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, SCROLL_BAND, mouthPhase, MOUTH_MAX_MS};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();
