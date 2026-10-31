@@ -194,14 +194,17 @@
     }, 100);
   }
   // 보정 점 하나를 보여 준다. now가 null이면 첫 시선 결과가 올 때 시간을 재기 시작한다
+  // 크게 나타나 작아지는 점이 눈을 끌어당긴다. 작아지는 시간이 눈이 옮겨 가는 시간(CAL.settle_ms)이다
+  function shrinkDot() {
+    shadow.querySelector('#dot').animate([{transform: 'translate(-50%,-50%) scale(3)'}, {transform: 'translate(-50%,-50%) scale(1)'}], CAL.settle_ms);
+  }
   function showPoint(now) {
     calibration.shownAt = now;
     calibration.records = [];
     const [x, y] = CALIBRATION_POINTS[CALIBRATION_ORDER[calibration.step]];
     const dot = shadow.querySelector('#dot');
     dot.style.left = `${x * 100}vw`; dot.style.top = `${y * 100}vh`;
-    // 크게 나타나 작아지는 점이 눈을 끌어당긴다. 작아지는 시간이 눈이 옮겨 가는 시간(CAL.settle_ms)이다
-    dot.animate([{transform: 'translate(-50%,-50%) scale(3)'}, {transform: 'translate(-50%,-50%) scale(1)'}], CAL.settle_ms);
+    shrinkDot();
     // 다음 점 자리를 회색 점선 원으로 미리 보여 준다: 처음 쓰는 사용자도 점이 어디로 갈지 안다
     // 같은 점을 한 번 더 볼 때(바퀴가 바뀔 때)는 원이 지금 점을 둘러싸서 "그대로 보라"는 뜻이 된다
     const next = CALIBRATION_ORDER[calibration.step + 1];
@@ -216,6 +219,7 @@
       if (!Array.isArray(frame.gaze)) return;
       if (now < calibration.createdAt + CAL.settle_ms + CAL.lead_ms) { status('곧 보정을 시작합니다 · 초록 점을 바라보세요'); return; }
       calibration.shownAt = now;
+      shrinkDot(); // 진짜 시작: 켤 때 한 번 줄어든 첫 점이 여기서 한 번 더 줄어들며 '이제 본다'를 알린다
     }
     // record.time은 점이 나타난 뒤 촬영까지 걸린 시간. 눈이 아직 옮겨 가는 중인 앞부분은 버린다
     const record = gazeRecord(frame, now, calibration.shownAt);
