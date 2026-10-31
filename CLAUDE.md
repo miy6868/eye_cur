@@ -3,7 +3,7 @@
 ## 규칙
 - 고1 "AI 앱 개발 프로젝트" 발표 과제다. 사용자는 코드 수준 설명을 하지 않으므로 코드 스타일은 작업하기 편한 쪽으로 정한다. 주석·문서는 한국어.
 - AI 모델(MediaPipe, UniGaze)은 입력 처리에만 쓴다. 보정 회귀·떨림 필터·대상 선택·입 벌리기 클릭은 직접 구현한 코드로 유지하고 외부 라이브러리나 API로 바꾸지 않는다.
-- 개발은 Arch Linux + Hyprland, 시연은 Windows 학교 PC + Chrome. OS별 차이는 `backend/camera.py`와 setup/start 스크립트에만 둔다. Windows 동작은 깨지 않는다.
+- 기본적으로 개발은 Arch Linux + Hyprland, 시연은 Windows 학교 PC + Chrome. OS별 차이는 `backend/camera.py`와 setup/start 스크립트에만 둔다. Windows 동작은 깨지 않는다.
 - 순수 로직은 `extension/core.js`에 두고 `tests/core.test.cjs`에 테스트를 추가한다.
 - 변경 후 두 명령이 통과해야 한다:
   - `node --test tests/core.test.cjs tests/worker.test.cjs`
