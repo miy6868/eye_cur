@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -268,4 +268,36 @@ test('MouthClick cancels an opening longer than 2 seconds', () => {
   const {m, clicked} = mouthClick(2.5);
   assert.equal(clicked, null);
   assert.equal(m.result, 'long');
+});
+
+test('long mouth opening reports long even without a target (opens the menu)', () => {
+  const m = new MouthClick();
+  m.update({valid: true, mouthOpen: false, time: 0}, null);
+  for (let time = 100; time <= 2600; time += 100) m.update({valid: true, mouthOpen: true, time}, null);
+  assert.equal(m.update({valid: true, mouthOpen: false, time: 2700}, null), null);
+  assert.equal(m.result, 'long');
+});
+
+test('suggest matches by jamo prefix, typed syllables first, and skips the exact word', () => {
+  const entries = [['하고', 'ㅎㅏㄱㅗ'], ['학교', 'ㅎㅏㄱㄱㅛ'], ['학', 'ㅎㅏㄱ'], ['하나', 'ㅎㅏㄴㅏ'], ['you', 'you']].map(([word, key]) => ({word, key}));
+  assert.deepEqual(suggest(entries, 'ㅎㅏㄱ', '학'), ['학교', '하고']); // '학'으로 시작하는 단어가 먼저
+  assert.deepEqual(suggest(entries, 'ㅎ', 'ㅎ', 2), ['하고', '학교']);
+  assert.deepEqual(suggest(entries, '', ''), []);
+  assert.deepEqual(suggest(entries, 'yo', 'yo'), ['you']);
+});
+
+test('textChange removes only the changed tail of the composing text', () => {
+  assert.deepEqual(textChange('', 'ㅇ'), {remove: 0, insert: 'ㅇ'});
+  assert.deepEqual(textChange('ㅇ', '아'), {remove: 1, insert: '아'});
+  assert.deepEqual(textChange('안', '아나'), {remove: 1, insert: '아나'});
+  assert.deepEqual(textChange('안녕', '안녀'), {remove: 1, insert: '녀'});
+  assert.deepEqual(textChange('hel', 'hello '), {remove: 0, insert: 'lo '});
+});
+
+test('scrollSpeed is zero in the middle and faster toward the edges', () => {
+  assert.equal(scrollSpeed(.5), 0);
+  assert.ok(scrollSpeed(.2) < 0 && scrollSpeed(.8) > 0);
+  assert.ok(scrollSpeed(0) < scrollSpeed(.2));
+  assert.equal(scrollSpeed(-.1), scrollSpeed(0)); // 화면 밖은 최고 속도로 자른다
+  assert.equal(scrollSpeed(1), -scrollSpeed(0));
 });

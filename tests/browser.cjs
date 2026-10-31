@@ -28,6 +28,7 @@ const playwright = require(process.env.PLAYWRIGHT_PATH || 'playwright');
         window.listener({type: 'frame', gaze, closed, valid, time: window.clock});
       };
     });
+    await page.addScriptTag({path: path.join(__dirname, '../extension/vendor/es-hangul.js')});
     await page.addScriptTag({path: path.join(__dirname, '../extension/core.js')});
     await page.addScriptTag({path: path.join(__dirname, '../extension/dom.js')});
     await page.addScriptTag({path: path.join(__dirname, '../extension/content.js')});

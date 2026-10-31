@@ -8,7 +8,7 @@
   // true: 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 고친다(클릭 보정). 효과를 아직 측정하지 않아 기본은 끔
   const CLICK_DRIFT = false;
   const CLICK_HINT = CLICK_MODE === 'mouth' ? '입을 0.5~2.0초 벌렸다 다무세요' : '양눈을 0.6~2.0초 감았다 뜨세요';
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed} = globalThis.GazeCore;
   const nearest = new NearestSelector();
   // F 키로 순환하는 떨림 제거 필터. '끔'이면 원본 점을 그대로 쓴다
   const filterChoices = [
@@ -47,6 +47,21 @@
   // 팝업의 '화면에 정보 표시'. 사이트를 방해하지 않도록 기본은 꺼짐.
   // 켜야 왼쪽 아래 정보 상자가 보이고 단축키(F 필터, ESC 중지)가 동작한다
   let showInfo = false;
+  let autoKeyboard = true; // 팝업의 '입력칸을 누르면 키보드 표시'
+  // 메뉴(입을 2초 넘게 벌렸다 다물기)에서 들어가는 화면: null | 'menu' | 'scroll' | 'tabs' | 'keyboard'
+  let mode = null;
+  let scrollExit = null, scrollVelocity = 0, scrollBox = null, scrollAimed = 0, scrollFrame = 0, scrollTime = 0;
+  let tabList = [], tabPage = 0;
+  const TABS_PER_PAGE = 8;
+  // 가상 키보드 상태. jamo: 지금 조합 중인 단어의 누른 키들, shown: 그 단어로 입력칸에 이미 넣은 글자
+  const kb = {lang: 'ko', shift: false, symbols: false, jamo: [], shown: '', suggestions: [], target: null};
+  const KEY_ROWS = {
+    ko: ['ㅂㅈㄷㄱㅅㅛㅕㅑㅐㅔ', 'ㅁㄴㅇㄹㅎㅗㅓㅏㅣ', 'ㅋㅌㅊㅍㅠㅜㅡ'],
+    koShift: ['ㅃㅉㄸㄲㅆㅛㅕㅑㅒㅖ', 'ㅁㄴㅇㄹㅎㅗㅓㅏㅣ', 'ㅋㅌㅊㅍㅠㅜㅡ'],
+    en: ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'],
+    symbols: ['1234567890', '.,?!@#-_\'', '()/:;~"+'],
+  };
+  const wordLists = {}; // lang → Promise<[{word, key}]>, 키보드를 처음 열 때 불러온다
 
   function send(message) { return chrome.runtime.sendMessage({...message, context: currentContext}).catch(() => {}); }
   function status(text) {
@@ -55,6 +70,10 @@
     shadow.querySelector('#status').textContent = text;
     send({type: 'uiStatus', message: text});
   }
+  function identify(element) {
+    if (!ids.has(element)) ids.set(element, `e${++idNumber}`);
+    return ids.get(element);
+  }
   function invalidate() {
     selected = null; pending = null; history = []; resetFilter(); lockGaze = null;
     requestNumber++; clicker?.reset();
@@ -62,7 +81,7 @@
     if (shadow) shadow.querySelector('#target').hidden = true;
   }
   function end(message) {
-    running = false; clearInterval(timer); invalidate();
+    running = false; clearInterval(timer); invalidate(); mode = null; resetComposition();
     if (shadow && message) {
       status(message);
       shadow.querySelector('#veil').hidden = true;
@@ -118,11 +137,38 @@
       #target{position:fixed;border:3px solid #21dba0;border-radius:5px;background:#21dba01a;box-shadow:0 0 0 2px #071b2a99}
       /* 입을 벌리는 동안은 주황색: 정보 상자를 꺼 두어도 클릭이 진행 중인지 보인다 */
       #target.arming{border-color:#f59e0b;background:#f59e0b2e}
+      /* 메뉴·탭·키보드: 시선 오차가 커도 누를 수 있게 버튼을 화면 크기에 맞춰 크게 만든다 */
+      #overlay{position:fixed;inset:0;font-family:system-ui;color:#fff}
+      #overlay button{pointer-events:auto;font:700 4.4vh/1.15 system-ui;border-radius:2vh;background:#1f3350;border:3px solid #ffffff30;padding:1vh;overflow:hidden}
+      .sheet{position:fixed;inset:0;background:#0b1220;display:grid;gap:2.5vh;padding:5vh 5vw;pointer-events:auto}
+      .menu{grid-template:repeat(2,1fr) .7fr/repeat(3,1fr)}
+      .wide{grid-column:1/-1}
+      .tabs{grid-template:repeat(2,1fr) .6fr/repeat(4,1fr)}
+      .tabs .nav{grid-row:3}.tabs .middle{grid-column:2/4}
+      #overlay .tab{display:flex;flex-direction:column;justify-content:center;gap:1vh;font-size:3.2vh;text-align:left;padding:2vh}
+      .tab b{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+      .tab small{font:500 2.4vh system-ui;color:#9fb3c8}
+      #overlay .current{border-color:#21dba0}
+      .band{position:fixed;left:0;right:0;height:25vh;background:#176cff30;display:flex;align-items:center;justify-content:center;font:700 6vh system-ui;text-shadow:0 2px 6px #000}
+      .up{top:0}.down{bottom:0}
+      .hint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#0b1220cc;border-radius:1.5vh;padding:1.5vh 3vh;font:600 3vh system-ui}
+      .keys{position:fixed;left:0;right:0;height:62vh;background:#0b1220f2;display:flex;flex-direction:column;gap:1vh;padding:1.2vh 1vw;pointer-events:auto}
+      .keys.bottom{bottom:0}.keys.top{top:0}
+      .preview{flex:.55;display:flex;align-items:center;background:#ffffff14;border-radius:1.5vh;padding:0 2vh;font:500 3.2vh system-ui;white-space:nowrap;overflow:hidden}
+      .row{flex:1;display:flex;gap:.7vw}
+      .row>*{flex:1}
+      #overlay .word{font-size:3.6vh;background:#123f36}
+      #overlay .space{flex:3}
+      #overlay .on{background:#176cff}
+      .empty{border-radius:2vh;background:#ffffff08}
       </style>
       <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 약 30초</div><div id="next"></div><div id="dot"></div><div id="choices" hidden><button id="use">그래도 사용</button><button id="retry">다시 보정</button></div></div>
+      <div id="overlay" hidden></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div>
       <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="drift"></span><span id="eyesize"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas></div>`;
     document.documentElement.appendChild(host);
+    // 진짜 마우스로 키를 눌러도 페이지 입력칸의 초점을 빼앗지 않는다
+    shadow.querySelector('#overlay').addEventListener('mousedown', event => event.preventDefault());
     shadow.querySelector('#use').onclick = () => finishCalibration(calibration.result);
     shadow.querySelector('#retry').onclick = () => send({type: 'recalibrate'});
     showFilterName();
@@ -294,16 +340,19 @@
     drift.textContent = `클릭 보정 (${x >= 0 ? '+' : ''}${x}, ${y >= 0 ? '+' : ''}${y})px`;
   }
   function candidates(x, y) {
+    // 띄워 둔 큰 버튼(메뉴·탭·키보드)도 후보. 메뉴·탭 화면은 페이지를 덮으므로 그 버튼만 본다
+    const own = [...shadow.querySelectorAll('#overlay button:not([hidden])')].map(element => {
+      const r = element.getBoundingClientRect(), rect = [r.x, r.y, r.width, r.height];
+      return {id: identify(element), element, rect, name: element.textContent, role: 'button', overlay: true, distance: Math.round(GazeCore.distanceToRect(x, y, rect))};
+    }).sort((a, b) => a.distance - b.distance);
+    if (mode === 'menu' || mode === 'tabs') return own.slice(0, 8);
     const radius = Math.max(100, Math.min(240, (model.error + .06) * Math.min(innerWidth, innerHeight) * 2));
     askFrames(x, y, radius);
-    const local = GazeDOM.collect(x, y, radius, element => {
-      if (!ids.has(element)) ids.set(element, `e${++idNumber}`);
-      return ids.get(element);
-    });
+    const local = GazeDOM.collect(x, y, radius, identify);
     // iframe 후보는 한 박자 전에 받은 것이라, 거리는 지금 시선으로 다시 잰다
     const inFrames = frameItems.map(item => ({...item, distance: Math.round(GazeCore.distanceToRect(x, y, item.rect))}))
       .filter(item => item.distance <= radius);
-    return [...local, ...inFrames].sort((a, b) => a.distance - b.distance || a.rect[2] * a.rect[3] - b.rect[2] * b.rect[3]).slice(0, 8);
+    return [...own, ...local, ...inFrames].sort((a, b) => a.distance - b.distance || a.rect[2] * a.rect[3] - b.rect[2] * b.rect[3]).slice(0, 8);
   }
   // 다른 주소의 iframe(네이버 지도 검색 결과 등) 속 요소는 여기서 볼 수 없어서, 워커를 거쳐 그 프레임의 frame.js에 묻는다.
   // 답은 비동기로 오므로 frameItems에 담아 두고 다음 프레임에 쓴다. 좌표는 iframe 내용의 왼쪽 위만큼 옮겨 이 페이지 기준으로 바꾼다
@@ -338,6 +387,7 @@
   }
   // 선택된 요소가 그대로인지. iframe 속 요소는 최근에 받은 목록에 같은 자리로 남아 있으면 그대로로 본다(클릭 직전에는 frame.js가 다시 확인)
   function unchanged(item) {
+    if (item.overlay) return item.element.isConnected;
     if (item.frameId === undefined) return GazeDOM.unchanged(item);
     return frameItems.some(other => other.id === item.id && other.rect.every((v, k) => Math.abs(v - item.rect[k]) <= 5));
   }
@@ -355,6 +405,8 @@
     }
     const gaze = lockGaze;
     invalidate();
+    if (item.overlay) { item.element.click(); return; }
+    if (mode === 'keyboard') resetComposition(); // 페이지를 누르면(추천 목록 등) 입력칸 내용이 바뀔 수 있어 조합을 새로 시작
     if (item.frameId === undefined) { GazeDOM.press(item.element, item.rect); status('클릭 완료'); }
     else send({type: 'frameRelay', frameId: item.frameId, request: {type: 'frameClick', id: item.frameItemId}})
       .then(ok => status(ok ? '클릭 완료' : '대상이 바뀌어 클릭을 취소했습니다.'));
@@ -388,27 +440,29 @@
     showEyeSize(message.openness);
     if (selected && !unchanged(selected)) invalidate();
     const wasActive = clicker.active;
-    const clicked = clicker.update(message, selected);
+    const clicked = clicker.update(message, mode === 'scroll' ? scrollExit : selected);
     if (clicker.active && !wasActive) {
       // 입을 벌리기 시작한 순간(대상 고정) 직전 0.5초의 예측 위치 평균. 입을 벌리는 동안엔 시선이 흔들릴 수 있다
       const recent = trail.filter(p => now - p.time < 500).map(p => p.raw);
       lockGaze = recent.length ? average(recent) : null;
     }
     if (clicker.active) {
-      showTarget(selected);
+      scrollVelocity = 0;
+      showTarget(mode === 'scroll' ? scrollExit : selected);
       if (CLICK_MODE === 'mouth') mouthStatus(message.time);
       else if (clicker.started === null) status(selected ? '눈 감기 시작 · 클릭 대상 고정' : '선택된 대상 없음 · 먼저 초록 테두리를 확인하세요.');
       else {
         const elapsed = message.time - clicker.started;
-        status(!selected ? '눈 감기 감지됨 · 선택된 대상이 없어 클릭하지 않습니다.' : elapsed <= 2000 ? `대상 고정 · 눈 감기 ${(elapsed / 1000).toFixed(1)}초 · 0.6~2.0초 안에 뜨세요` : '너무 오래 감음 · 클릭 취소');
+        status(elapsed > 2000 ? menuHint() : !clicker.target ? '눈 감기 감지됨 · 대상 없음 · 2초 넘게 감으면 메뉴' : `대상 고정 · 눈 감기 ${(elapsed / 1000).toFixed(1)}초 · 0.6~2.0초 안에 뜨세요`);
       }
       return;
     }
     if (clicked) { click(clicked); return; }
-    if (CLICK_MODE === 'mouth') mouthResult();
+    // 2초 넘게 벌렸다(감았다) 끝내면 메뉴를 연다. 메뉴가 떠 있으면 닫는다
+    if (clicker.result === 'long') setMode(mode === 'menu' ? null : 'menu');
+    else if (CLICK_MODE === 'mouth') mouthResult();
     else if (clicker.result === 'no-target') status('눈 감기는 인식됐지만 선택된 대상이 없습니다.');
     else if (clicker.result === 'short') status('짧은 깜빡임 · 클릭하려면 0.6초 이상 감아 주세요.');
-    else if (clicker.result === 'long') status('2초를 넘겨 클릭을 취소했습니다.');
     if (!message.gaze) return;
     const point = predict(model, message.gaze);
     if (point.some(v => !Number.isFinite(v))) {
@@ -430,7 +484,8 @@
     drawGraph(now);
     history.push({x: Math.round(smooth[0]), y: Math.round(smooth[1]), time: now});
     history = history.filter(p => now - p.time < 1200).slice(-8);
-    if (!USE_JEV) { chooseNearest(now); return; }
+    if (mode === 'scroll') { aimScroll(smooth, now); return; }
+    if (!USE_JEV || mode) { chooseNearest(now); return; }
     const stable = history.slice(-3);
     if (pending || now - lastRequest < 400 || stable.length < 3 || now - stable[0].time < 200) return;
     if (stable.some(p => Math.hypot(p.x - smooth[0], p.y - smooth[1]) > 65)) return;
@@ -445,17 +500,17 @@
   }
   function mouthStatus(time) {
     const elapsed = time - clicker.started;
-    if (!clicker.target) status('입 벌림 감지 · 선택된 대상이 없어 클릭하지 않습니다.');
-    else if (elapsed <= 2000) status(`대상 고정 · 입 벌림 ${(elapsed / 1000).toFixed(1)}초 · 0.5~2.0초 안에 다무세요`);
-    else status('너무 오래 벌림 · 클릭 취소');
+    if (elapsed > 2000) status(menuHint());
+    else if (!clicker.target) status('입 벌림 감지 · 대상 없음 · 2초 넘게 벌리면 메뉴');
+    else status(`대상 고정 · 입 벌림 ${(elapsed / 1000).toFixed(1)}초 · 0.5~2.0초 안에 다무세요`);
   }
+  function menuHint() { return mode === 'menu' ? '지금 끝내면 메뉴를 닫습니다' : '지금 끝내면 메뉴를 엽니다'; }
   function mouthResult() {
     if (clicker.result === 'no-target') status('입 벌림은 인식됐지만 선택된 대상이 없습니다.');
     else if (clicker.result === 'short') status('짧게 벌림(말하기 등)은 무시합니다 · 클릭하려면 0.5초 이상 벌려 주세요.');
-    else if (clicker.result === 'long') status('2초를 넘겨 클릭을 취소했습니다.');
   }
   function resetFilter() {
-    smooth = null;
+    smooth = null; scrollVelocity = 0; // 시선을 잃으면 스크롤도 멈춘다
     filter?.reset();
     trail = [];
   }
@@ -508,10 +563,182 @@
   function chooseNearest(now) {
     const item = nearest.update(candidates(...smooth), now);
     // 머무름 0.3초가 지나기 전에는 선택이 없으므로 테두리를 그리지 않는다
-    if (!item) { status('대상을 0.3초 이상 바라보세요.'); return; }
+    if (!item) { status(mode ? '버튼을 0.3초 이상 바라보세요.' : '대상을 0.3초 이상 바라보세요.'); return; }
     selected = item;
     showTarget(selected);
     status(`선택: ${item.name || item.role} · ${CLICK_HINT}.`);
+  }
+  // ── 메뉴·스크롤·탭·키보드 ──
+  // 입을 2초 넘게 벌렸다 다물면 메뉴. 띄운 버튼도 페이지 요소처럼 후보가 되어 같은 방법(바라보기 + 입 클릭)으로 누른다.
+  // 화면은 상태가 바뀔 때마다 통째로 다시 그린다(render)
+  function make(tag, className, text, action) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = text;
+    if (action) element.onclick = action;
+    return element;
+  }
+  function setMode(next) {
+    mode = next; invalidate(); tabPage = 0;
+    if (next !== 'keyboard') resetComposition();
+    if (next === 'keyboard') { loadWords(kb.lang); kb.target = document.activeElement; }
+    if (next === 'scroll' && !scrollFrame) scrollFrame = requestAnimationFrame(scrollStep);
+    render();
+    status({menu: '메뉴 · 버튼을 바라보고 입을 벌렸다 다무세요', scroll: '스크롤 · 위·아래 띠를 보면 움직이고 가운데를 보면 멈춥니다 · 입을 벌렸다 다물면 끝',
+      tabs: '탭 고르기 · 갈 탭을 바라보고 입을 벌렸다 다무세요', keyboard: '키보드 · 키를 바라보고 입을 벌렸다 다무세요'}[next] || '메뉴를 닫았습니다');
+  }
+  function render() {
+    const overlay = shadow.querySelector('#overlay');
+    overlay.replaceChildren();
+    overlay.hidden = !mode;
+    if (mode === 'menu') {
+      const sheet = make('div', 'sheet menu');
+      sheet.append(
+        make('button', '', '← 뒤로', () => { setMode(null); window.history.back(); }),
+        make('button', '', '앞으로 →', () => { setMode(null); window.history.forward(); }),
+        make('button', '', '⟳ 새로고침', () => { setMode(null); location.reload(); }),
+        make('button', '', '↕ 스크롤', () => setMode('scroll')),
+        make('button', '', '▦ 탭', openTabs),
+        make('button', '', '⌨ 키보드', () => setMode('keyboard')),
+        make('button', 'wide', '✕ 닫기', () => setMode(null)));
+      overlay.append(sheet);
+    }
+    if (mode === 'scroll') {
+      const exit = make('button', '', '스크롤 끝내기', () => setMode(null));
+      exit.hidden = true; // 보이지 않는 버튼: 화면 어디를 보든 입을 벌렸다 다물면 이것이 눌린다
+      overlay.append(make('div', 'band up', '▲ 위로'), make('div', 'band down', '▼ 아래로'), make('div', 'hint', '가운데를 보면 멈춤 · 입을 벌렸다 다물면 끝'), exit);
+      scrollExit = {id: 'scroll-exit', element: exit, rect: [0, 0, innerWidth, innerHeight], name: '스크롤 끝내기', role: 'button', overlay: true};
+    }
+    if (mode === 'tabs') {
+      const sheet = make('div', 'sheet tabs');
+      const last = Math.max(0, Math.ceil(tabList.length / TABS_PER_PAGE) - 1);
+      for (const tab of tabList.slice(tabPage * TABS_PER_PAGE, (tabPage + 1) * TABS_PER_PAGE)) {
+        const card = make('button', tab.active ? 'tab current' : 'tab', undefined, () => switchTab(tab));
+        card.append(make('b', '', tab.title || tab.url), make('small', '', tab.active ? '지금 탭' : new URL(tab.url).hostname));
+        sheet.append(card);
+      }
+      sheet.append(tabPage > 0 ? make('button', 'nav', '◀ 이전', () => { tabPage--; render(); }) : make('div', 'nav'),
+        make('button', 'nav middle', '✕ 닫기', () => setMode(null)),
+        tabPage < last ? make('button', 'nav', '다음 ▶', () => { tabPage++; render(); }) : make('div', 'nav'));
+      overlay.append(sheet);
+    }
+    if (mode === 'keyboard') overlay.append(keyboardView());
+  }
+  function aimScroll([x, y], now) {
+    scrollVelocity = scrollSpeed(y / innerHeight);
+    // 띠 위를 보고 있어도 띠는 마우스를 통과시키므로 그 아래 페이지의 스크롤 상자를 찾는다(디스코드 대화 목록 등)
+    scrollBox = scrollVelocity ? GazeDOM.scroller(Math.min(innerWidth - 1, Math.max(0, x)), Math.min(innerHeight - 1, Math.max(0, y)), scrollVelocity) : null;
+    scrollAimed = now;
+  }
+  // 시선은 초당 약 9번 오므로 화면 새로 고침마다 조금씩 움직여 부드럽게 스크롤한다
+  function scrollStep(time) {
+    if (!running || mode !== 'scroll') { scrollFrame = 0; scrollTime = 0; return; }
+    if (scrollTime && scrollVelocity && scrollBox && performance.now() - scrollAimed < 400) scrollBox.scrollBy(0, scrollVelocity * Math.min(50, time - scrollTime) / 1000);
+    scrollTime = time;
+    scrollFrame = requestAnimationFrame(scrollStep);
+  }
+  function openTabs() {
+    send({type: 'listTabs'}).then(list => {
+      if (!running || mode !== 'menu') return;
+      tabList = Array.isArray(list) ? list : [];
+      setMode('tabs');
+      // 지금 탭이 있는 쪽을 먼저 보여 준다
+      tabPage = Math.max(0, Math.floor(tabList.findIndex(tab => tab.active) / TABS_PER_PAGE));
+      render();
+    });
+  }
+  function switchTab(tab) {
+    setMode(null);
+    if (tab.active) return;
+    // 탭이 바뀌면 워커가 이 페이지를 멈추고 새 탭에 붙인다(보정은 그대로)
+    send({type: 'switchTab', tabId: tab.id}).then(ok => { if (!ok && running) status('탭을 바꾸지 못했습니다.'); });
+  }
+  // 가상 키보드: 일반 자판(두벌식/QWERTY). 한글 조합은 es-hangul(assemble)에 맡긴다
+  function keyboardView() {
+    const target = document.activeElement;
+    const ready = GazeDOM.editable(target);
+    // 입력칸이 화면 아래쪽에 있으면(디스코드 등) 키보드를 위에 띄워 칸이 가려지지 않게 한다
+    const box = ready && target.getBoundingClientRect();
+    const board = make('div', `keys ${ready && box.y + box.height / 2 > innerHeight / 2 ? 'top' : 'bottom'}`);
+    board.append(make('div', 'preview', ready ? previewText(target) : '입력칸을 먼저 선택하세요 · 키보드 밖 페이지에서 입력칸을 바라보고 클릭'));
+    const words = make('div', 'row');
+    for (let i = 0; i < 5; i++) words.append(kb.suggestions[i] ? make('button', 'word', kb.suggestions[i], () => pickWord(kb.suggestions[i])) : make('div', 'empty'));
+    board.append(words);
+    const rows = kb.symbols ? KEY_ROWS.symbols : kb.lang === 'ko' ? KEY_ROWS[kb.shift ? 'koShift' : 'ko'] : KEY_ROWS.en.map(row => kb.shift ? row.toUpperCase() : row);
+    rows.forEach((letters, index) => {
+      const row = make('div', 'row');
+      if (index === 2 && !kb.symbols) row.append(make('button', kb.shift ? 'on' : '', '⇧', () => { kb.shift = !kb.shift; render(); }));
+      for (const letter of letters) row.append(make('button', '', letter, () => typeKey(letter)));
+      if (index === 2) row.append(make('button', '', '⌫', backspace));
+      board.append(row);
+    });
+    const controls = make('div', 'row');
+    controls.append(
+      make('button', '', kb.symbols ? (kb.lang === 'ko' ? '가' : 'abc') : '123', () => { resetComposition(); kb.symbols = !kb.symbols; render(); }),
+      make('button', '', kb.lang === 'ko' ? '한→영' : '영→한', () => { resetComposition(); kb.lang = kb.lang === 'ko' ? 'en' : 'ko'; kb.symbols = false; kb.shift = false; loadWords(kb.lang); render(); }),
+      make('button', 'space', '스페이스', () => { if (!typingTarget()) return; resetComposition(); GazeDOM.type(0, ' '); render(); }),
+      make('button', '', '⏎ 엔터', () => { const target = typingTarget(); if (!target) return; resetComposition(); GazeDOM.enter(target); render(); }),
+      make('button', '', '✕ 닫기', () => setMode(null)));
+    board.append(controls);
+    return board;
+  }
+  // 키보드 위 줄: 입력칸이 가려져도 무엇이 들어갔는지 보이게 끝부분을 보여 준다
+  function previewText(target) {
+    const text = 'value' in target && target.tagName !== 'BUTTON' ? target.value : target.innerText;
+    const shown = target.type === 'password' ? '•'.repeat(text.length) : text.replace(/\s+/g, ' ');
+    return (shown.length > 60 ? `…${shown.slice(-60)}` : shown) + '▏';
+  }
+  // 글자를 넣을 입력칸. 초점이 다른 칸으로 옮겨 갔으면 조합을 새로 시작한다
+  function typingTarget() {
+    const target = document.activeElement;
+    if (!GazeDOM.editable(target)) { status('입력칸을 먼저 선택하세요.'); return null; }
+    if (target !== kb.target) { resetComposition(); kb.target = target; }
+    return target;
+  }
+  function resetComposition() { kb.jamo = []; kb.shown = ''; kb.suggestions = []; }
+  // 조합 중인 단어를 다시 만들어 입력칸에서 달라진 끝부분만 바꾼다 ('안' + ㅏ → '아나')
+  function compose() {
+    const next = kb.lang === 'ko' ? globalThis.Hangul.assemble(kb.jamo) : kb.jamo.join('');
+    const {remove, insert} = textChange(kb.shown, next);
+    GazeDOM.type(remove, insert);
+    kb.shown = next;
+    refreshWords();
+  }
+  function typeKey(letter) {
+    if (!typingTarget()) return;
+    if (kb.symbols) { resetComposition(); GazeDOM.type(0, letter); render(); return; }
+    kb.jamo.push(letter); kb.shift = false;
+    compose();
+  }
+  function backspace() {
+    if (!typingTarget()) return;
+    if (kb.jamo.length) { kb.jamo.pop(); compose(); return; } // 조합 중이면 자모 하나만 지운다
+    GazeDOM.type(1, ''); render();
+  }
+  function pickWord(word) {
+    if (!typingTarget()) return;
+    // 대문자로 시작했으면 추천 단어도 대문자로 시작
+    const text = kb.lang === 'en' && /^[A-Z]/.test(kb.shown) ? word[0].toUpperCase() + word.slice(1) : word;
+    const {remove, insert} = textChange(kb.shown, `${text} `);
+    GazeDOM.type(remove, insert);
+    resetComposition(); render();
+  }
+  function loadWords(lang) {
+    // 단어 목록: FrequencyWords(자막 빈도, CC-BY-SA 4.0)에서 scripts/build_words.py로 만든 2만 개
+    wordLists[lang] ??= fetch(chrome.runtime.getURL(`words/${lang}.json`)).then(response => response.json())
+      .then(list => list.map(word => ({word, key: lang === 'ko' ? globalThis.Hangul.disassemble(word) : word})))
+      .catch(() => []);
+    return wordLists[lang];
+  }
+  function refreshWords() {
+    const shown = kb.shown, lang = kb.lang;
+    render();
+    if (!shown) return;
+    loadWords(lang).then(entries => {
+      if (mode !== 'keyboard' || kb.shown !== shown || kb.lang !== lang) return;
+      kb.suggestions = suggest(entries, lang === 'ko' ? globalThis.Hangul.disassemble(shown) : shown.toLowerCase(), lang === 'ko' ? shown : shown.toLowerCase());
+      render();
+    });
   }
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
     // Always acknowledge receipt, including frames/status and obsolete contexts.
@@ -548,13 +775,21 @@
     nextFilter();
   }, true);
   // 팝업에서 스위치를 바꾸면 storage가 바뀌고, 열려 있는 탭에도 바로 적용된다
-  chrome.storage.local.get('showInfo').then(data => { showInfo = !!data.showInfo; applyInfo(); });
+  chrome.storage.local.get(['showInfo', 'autoKeyboard']).then(data => { showInfo = !!data.showInfo; autoKeyboard = data.autoKeyboard !== false; applyInfo(); });
   chrome.storage.onChanged.addListener(changes => {
+    if (changes.autoKeyboard) autoKeyboard = changes.autoKeyboard.newValue !== false;
     if (!changes.showInfo) return;
     showInfo = !!changes.showInfo.newValue;
     applyInfo();
   });
   document.addEventListener('visibilitychange', () => { if (running && document.hidden) { invalidate(); hideCursor(); } });
-  window.addEventListener('scroll', () => { if (running) invalidate(); }, true);
+  // 스크롤 모드에서는 스크롤할 때마다 초기화하면 필터·입 클릭이 끊기므로 그대로 둔다
+  window.addEventListener('scroll', () => { if (running && mode !== 'scroll') invalidate(); }, true);
+  // 입력칸에 초점이 오면(시선 클릭·마우스 모두) 키보드를 띄운다. 이미 떠 있으면 미리보기·위치를 새로 그린다
+  document.addEventListener('focusin', event => {
+    if (!running || !model || calibration || !GazeDOM.editable(event.target)) return;
+    if (mode === 'keyboard') { resetComposition(); kb.target = event.target; render(); }
+    else if (!mode && autoKeyboard) setMode('keyboard');
+  }, true);
   window.addEventListener('blur', () => { if (running) invalidate(); });
 })();

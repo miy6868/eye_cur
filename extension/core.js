@@ -5,7 +5,7 @@
   const SWITCH_MARGIN_PX = 30; // 새 1등이 이만큼 더 가까워야 선택을 바꿈 (끈적임)
   // MouthClick 설정
   const MOUTH_MIN_MS = 500;       // 이보다 짧게 벌리면 말하는 중으로 보고 무시
-  const MOUTH_MAX_MS = 2000;      // 이보다 오래 벌리면 클릭 취소
+  const MOUTH_MAX_MS = 2000;      // 이보다 오래 벌리면 클릭 대신 'long' → content.js가 메뉴를 연다
   const MOUTH_COOLDOWN_MS = 800;  // 클릭 직후 연속 클릭 방지
   // 9점 응시 보정 설정
   // 3×3 점을 ㄹ자 순서로 본다. 가장자리 10%: 버튼이 놓이는 곳을 모두 덮으면서 화면 끝에 너무 붙지 않게
@@ -124,7 +124,8 @@
       }
       const elapsed = this.started === null ? 0 : time - this.started;
       const click = elapsed >= 600 && elapsed <= 2000 && time >= this.cooldown ? this.target : null;
-      if (this.started !== null) this.result = click ? 'clicked' : !this.target ? 'no-target' : elapsed < 600 ? 'short' : elapsed > 2000 ? 'long' : 'cooldown';
+      // 'long'(2초 넘게 감음)은 대상이 없어도 알린다: content.js가 메뉴를 연다
+      if (this.started !== null) this.result = click ? 'clicked' : elapsed > 2000 ? 'long' : !this.target ? 'no-target' : elapsed < 600 ? 'short' : 'cooldown';
       this.started = null; this.armedAt = null; this.target = null;
       if (click) this.cooldown = time + 800;
       return click;
@@ -150,7 +151,7 @@
       if (this.started === null) return null;
       const elapsed = time - this.started;
       const click = elapsed >= MOUTH_MIN_MS && elapsed <= MOUTH_MAX_MS && time >= this.cooldown ? this.target : null;
-      this.result = click ? 'clicked' : !this.target ? 'no-target' : elapsed < MOUTH_MIN_MS ? 'short' : elapsed > MOUTH_MAX_MS ? 'long' : 'cooldown';
+      this.result = click ? 'clicked' : elapsed > MOUTH_MAX_MS ? 'long' : !this.target ? 'no-target' : elapsed < MOUTH_MIN_MS ? 'short' : 'cooldown';
       this.started = null; this.target = null;
       if (click) this.cooldown = time + MOUTH_COOLDOWN_MS;
       return click;
@@ -272,9 +273,37 @@
       return current + DRIFT_GAIN * (center[k] - gaze[k]) / screen[k];
     });
   }
+  // 가상 키보드 추천: entries는 자주 쓰는 순서의 [{word, key}] (key = 자모로 푼 단어).
+  // 자모 단위로 앞부분을 비교해서 '학'까지 쳤을 때 '하고'도 나온다(받침이 다음 글자로 넘어갈 수 있다).
+  // 다만 친 글자 그대로 시작하는 단어('학교')를 앞에 둔다. text = 입력칸에 보이는 조합 중인 글자
+  function suggest(entries, key, text, count = 5) {
+    if (!key) return [];
+    const same = [], other = [];
+    for (const entry of entries) {
+      if (entry.key === key || !entry.key.startsWith(key)) continue;
+      (entry.word.startsWith(text) ? same : other).push(entry.word);
+      if (same.length === count) break;
+    }
+    return [...same, ...other].slice(0, count);
+  }
+  // 입력칸에 이미 넣은 조합 중인 글자(old)를 새 글자(next)로 바꾸려면 몇 글자 지우고 무엇을 넣을지
+  function textChange(old, next) {
+    let same = 0;
+    while (same < old.length && same < next.length && old[same] === next[same]) same++;
+    return {remove: old.length - same, insert: next.slice(same)};
+  }
+  // 스크롤 모드: 화면 위·아래 SCROLL_BAND 안을 보면 그쪽으로 스크롤. 끝에 가까울수록 빠르다. 반환값은 초당 px(음수 = 위로)
+  const SCROLL_BAND = .25;
+  const SCROLL_MIN_PX = 150, SCROLL_MAX_PX = 1200;
+  function scrollSpeed(y) {
+    const depth = y < SCROLL_BAND ? (y - SCROLL_BAND) / SCROLL_BAND : y > 1 - SCROLL_BAND ? (y - 1 + SCROLL_BAND) / SCROLL_BAND : 0;
+    if (!depth) return 0;
+    const amount = Math.min(1, Math.abs(depth));
+    return Math.sign(depth) * (SCROLL_MIN_PX + (SCROLL_MAX_PX - SCROLL_MIN_PX) * amount);
+  }
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, SCROLL_BAND};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

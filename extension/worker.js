@@ -72,7 +72,7 @@ async function attach(tabId) {
     if ((needsFocus && !window.focused) || !/^https?:\/\//.test(tab.url || '')) {
       status = '대기 중 · 일반 웹페이지로 돌아오면 자동으로 계속합니다.'; return;
     }
-    await chrome.scripting.executeScript({target: {tabId}, files: ['core.js', 'dom.js', 'content.js']});
+    await chrome.scripting.executeScript({target: {tabId}, files: ['vendor/es-hangul.js', 'core.js', 'dom.js', 'content.js']});
     if (!enabled || expected !== generation) return;
     const nextContext = crypto.randomUUID();
     activeTab = tabId; context = nextContext;
@@ -200,6 +200,17 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   // 페이지가 iframe 속 frame.js에 후보·클릭을 부탁한다. content script끼리는 직접 못 보내서 워커가 frameId로 전달한다
   if (message.type === 'frameRelay' && ['frameCollect', 'frameClick'].includes(message.request?.type)) {
     chrome.tabs.sendMessage(activeTab, message.request, {frameId: message.frameId}).then(reply, () => reply(null));
+    return true;
+  }
+  // 탭 고르기 화면: 이 창의 일반 웹페이지 탭만 알려 준다(chrome:// 탭으로 가면 시선 커서를 띄울 수 없어 돌아올 수 없다)
+  if (message.type === 'listTabs') {
+    chrome.tabs.query({windowId: sender.tab.windowId}).then(tabs => reply(tabs.filter(tab => /^https?:\/\//.test(tab.url || ''))
+      .map(({id, title, url, active}) => ({id, title, url, active}))), () => reply([]));
+    return true;
+  }
+  // 고른 탭을 앞으로 가져온다. 그러면 onActivated가 그 탭에 붙인다
+  if (message.type === 'switchTab' && Number.isInteger(message.tabId)) {
+    chrome.tabs.update(message.tabId, {active: true}).then(() => reply(true), () => reply(false));
     return true;
   }
   if (message.type === 'choose' && connection?.readyState === WebSocket.OPEN) {
