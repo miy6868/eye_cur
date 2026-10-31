@@ -102,15 +102,23 @@
     if (element.tagName === 'INPUT') element.form?.requestSubmit();
     else document.execCommand('insertLineBreak');
   }
-  // (x, y) 아래에서 direction(양수 = 아래) 쪽으로 더 스크롤할 수 있는 가장 안쪽 상자. 없으면 페이지 전체
-  // shortcut: iframe 안(네이버 지도 목록 등)은 스크롤하지 못한다. 필요하면 frameRelay에 frameScroll을 더한다
-  function scroller(x, y, direction) {
-    for (let element = document.elementFromPoint(x, y); element && element !== document.documentElement; element = element.parentElement) {
-      if (!/auto|scroll|overlay/.test(getComputedStyle(element).overflowY)) continue;
-      const room = direction > 0 ? element.scrollHeight - element.clientHeight - element.scrollTop : element.scrollTop;
-      if (room > 1) return element;
+  function room(element, direction) {
+    return direction > 0 ? element.scrollHeight - element.clientHeight - element.scrollTop : element.scrollTop;
+  }
+  // (x, y) 아래에서 direction(양수 = 아래) 쪽으로 더 스크롤할 수 있는 가장 안쪽 상자. 없으면 페이지 전체.
+  // 같은 주소의 iframe(네이버 블로그·카페 본문 등: 바깥 페이지는 스크롤이 없다)은 그 안으로 들어가 찾는다
+  // shortcut: 다른 주소의 iframe(네이버 지도 목록 등)은 contentDocument가 null이라 못 들어간다. 필요하면 frameRelay에 frameScroll을 더한다
+  function scroller(x, y, direction, doc = document) {
+    for (let element = doc.elementFromPoint(x, y); element && element !== doc.documentElement; element = element.parentElement) {
+      const inner = element.tagName === 'IFRAME' && element.contentDocument;
+      if (inner) {
+        const r = element.getBoundingClientRect();
+        const found = scroller(x - r.x - element.clientLeft, y - r.y - element.clientTop, direction, inner);
+        if (found) return found;
+      } else if (/auto|scroll|overlay/.test(getComputedStyle(element).overflowY) && room(element, direction) > 1) return element;
     }
-    return document.scrollingElement;
+    // iframe 안에서 더 갈 데가 없으면 바깥 페이지에서 계속 찾게 null
+    return doc === document || room(doc.scrollingElement, direction) > 1 ? doc.scrollingElement : null;
   }
   globalThis.GazeDOM = {collect, unchanged, available, regions, press, editable, type, clear, enter, scroller};
 })();
