@@ -9,8 +9,16 @@
     scroll: {band: .25, min_px: 150, max_px: 1200},
     keyboard: {height: 75},
   };
+  // 메뉴의 바로가기 [[이름, 주소]]: config.toml [shortcuts]. 버튼이 작아지지 않게 최대 6개(3개씩 두 줄)
+  const SHORTCUTS = [];
+  const MAX_SHORTCUTS = 6;
   // 서버가 보낸 값 중 기본값과 같은 종류(숫자·글자)인 것만 받는다. 객체는 그대로 두고 값만 바꿔서 다른 곳이 잡아 둔 참조도 새 값을 본다
   function configure(values) {
+    // 바로가기는 http/https 주소만 받는다(javascript: 같은 주소로 페이지에서 코드가 돌지 않게)
+    if (values?.shortcuts && typeof values.shortcuts === 'object') {
+      SHORTCUTS.splice(0, SHORTCUTS.length, ...Object.entries(values.shortcuts)
+        .filter(([name, url]) => name && typeof url === 'string' && /^https?:\/\//i.test(url)).slice(0, MAX_SHORTCUTS));
+    }
     for (const [section, keys] of Object.entries(SETTINGS)) {
       for (const key of Object.keys(keys)) {
         const value = values?.[section]?.[key];
@@ -173,6 +181,13 @@
   function mouthPhase(elapsed) {
     return elapsed > CLICK.mouth_max_ms ? 'menu' : elapsed >= CLICK.mouth_min_ms ? 'click' : 'wait';
   }
+  // 입 벌림 진행 고리의 각도(도). 한 바퀴 = mouth_max_ms × 1.25라서 고리에 세 구간이 다 보인다:
+  // 0~click 회색(아직 짧음), click~menu 초록(클릭), menu~360 보라(메뉴). fill = 지금까지 찬 각도
+  function mouthRing(elapsed) {
+    const total = CLICK.mouth_max_ms * 1.25;
+    const degrees = ms => Math.min(360, Math.max(0, ms / total * 360));
+    return {fill: degrees(elapsed), click: degrees(CLICK.mouth_min_ms), menu: degrees(CLICK.mouth_max_ms)};
+  }
   // 떨림 제거 필터 1: 최근 size개 점의 평균
   class MovingAverage {
     constructor(size) { this.size = size; this.reset(); }
@@ -319,6 +334,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, SETTINGS, configure};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, configure};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

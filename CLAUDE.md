@@ -39,8 +39,8 @@
 | `backend/config.py`, `config.toml` | 설정 파일(`config.toml`, git에 포함)을 `tomllib`로 읽은 `CONFIG` dict. 서버 쪽 값(카메라·모델·`[mouth]`·`[eyes]`)과 확장으로 보낼 값(`[click]` 등)이 모두 여기 있다 |
 | `extension/manifest.json` | MV3, 권한 activeTab·scripting·storage·power, 모든 http/https 호스트, 모든 프레임에 core·dom·frame.js, `words/*.json`은 web_accessible_resources |
 | `extension/worker.js` | 세션 상태(`enabled`, `activeTab`, `context`, `savedCalibration`). `start`/`stop`/`attach`/`detach`/`followFocusedTab`, 소켓 `connect`와 재연결(`retrySocket`), 페이지 재시도(`retryPage`), iframe 중계(`frameRelay`), 탭 고르기(`listTabs`/`switchTab`), 탭·창 이벤트, 화면 꺼짐 방지(`chrome.power`) |
-| `extension/content.js` | 페이지 쪽 전부: 상수(`CLICK_DRIFT`), 조정 값 별칭(`CLICK`·`CAL` = `SETTINGS.click`·`.calibration`, `usesMouth()`, `clickHint()`), shadow DOM UI(보정 화면·커서·초록 테두리·정보 패널), 9점 보정(`showPoint`→`calibrate`→`finishPoint`→`learn`→`judge`→`finishCalibration`), `frame()`(메인 루프), `candidates`·`askFrames`(iframe 후보 비동기로 받아 `frameItems`에 둠)·`unchanged`, `chooseNearest`, `click`, `showTimer`(입 벌림 진행 고리 `#timer`, 입 클릭 모드만), 필터 순환(F), ESC 중지. 메뉴·모드: `setMode`, `render`(모드마다 `#overlay`를 새로 그림), 스크롤(`aimScroll`·`scrollStep` rAF), 탭(`openTabs`·`switchTab`), 키보드(`keyboardView`, `KEY_ROWS`, `kb` 상태, `typingTarget`·`compose`·`typeKey`·`backspace`·`pickWord`, `loadWords`·`refreshWords`), `focusin`이거나 시선 클릭 뒤 초점이 입력칸이면 키보드 자동 표시(`autoKeyboard`, 이미 초점 있는 칸은 focusin이 안 나서 `click()`에서도 연다) |
-| `extension/core.js` | `GazeCore`: `SETTINGS`(config.toml 값의 기본값)·`configure`, 보정 점·순서, `gazeRecord`, `medianGaze`, `fitPoints`/`fit`/`predict`(정규화 1차 회귀 + LOO 교차검증, 16점 이상이면 2차 후보), `Blink`, `MouthClick`, `mouthPhase`(지금 다물면 wait/click/menu), `MovingAverage`, `ExponentialSmoothing`, `FixationFilter`, `jitter`, `NearestSelector`, `eyeRange`/`eyeSize`, `correctDrift`, `distanceToRect`, `suggest`(자모 앞부분 추천), `textChange`(조합 글자 바꿀 끝부분), `scrollSpeed` |
+| `extension/content.js` | 페이지 쪽 전부: 상수(`CLICK_DRIFT`), 조정 값 별칭(`CLICK`·`CAL` = `SETTINGS.click`·`.calibration`, `usesMouth()`, `clickHint()`), shadow DOM UI(보정 화면·커서·초록 테두리·정보 패널), 9점 보정(`showPoint`→`calibrate`→`finishPoint`→`learn`→`judge`→`finishCalibration`), `frame()`(메인 루프), `candidates`·`askFrames`(iframe 후보 비동기로 받아 `frameItems`에 둠)·`unchanged`, `chooseNearest`, `click`, `showTimer`(입 벌림 진행 고리 `#timer`, 입 클릭 모드만. 남은 구간 색을 옅게 미리 보여 줌), 필터 순환(F), ESC 중지. 메뉴·모드: `setMode`, `render`(모드마다 `#overlay`를 새로 그림. 메뉴 = 기본 6개 + `SHORTCUTS` + 낮은 붉은 닫기(`.close`)), 스크롤(`aimScroll`·`scrollStep` rAF), 탭(`openTabs`·`switchTab`), 키보드(`keyboardView`, `KEY_ROWS`, `kb` 상태, `typingTarget`·`compose`·`typeKey`·`backspace`·`pickWord`, `loadWords`·`refreshWords`), `focusin`이거나 시선 클릭 뒤 초점이 입력칸이면 키보드 자동 표시(`autoKeyboard`, 이미 초점 있는 칸은 focusin이 안 나서 `click()`에서도 연다) |
+| `extension/core.js` | `GazeCore`: `SETTINGS`(config.toml 값의 기본값)·`SHORTCUTS`(바로가기)·`configure`, `mouthRing`(진행 고리 각도: 한 바퀴 = 메뉴 시간 × 1.25), 보정 점·순서, `gazeRecord`, `medianGaze`, `fitPoints`/`fit`/`predict`(정규화 1차 회귀 + LOO 교차검증, 16점 이상이면 2차 후보), `Blink`, `MouthClick`, `mouthPhase`(지금 다물면 wait/click/menu), `MovingAverage`, `ExponentialSmoothing`, `FixationFilter`, `jitter`, `NearestSelector`, `eyeRange`/`eyeSize`, `correctDrift`, `distanceToRect`, `suggest`(자모 앞부분 추천), `textChange`(조합 글자 바꿀 끝부분), `scrollSpeed` |
 | `extension/dom.js` | `GazeDOM.collect`(클릭 가능한 요소 → 시선에서 가까운 8개), `unchanged`(클릭 직전 위치·href 그대로인지), `available`(elementFromPoint로 가려짐 검사), `regions`(링크·제목은 텍스트 줄 단위 사각형), `press`(마우스 이벤트 순서로 클릭), `editable`, `type`(execCommand로 지우기·넣기), `enter`(keydown → 처리 안 되면 폼 제출/줄바꿈), `scroller`(시선 아래 스크롤 상자, 같은 주소 iframe은 안으로 들어가 찾음) |
 | `extension/vendor/es-hangul.js` | es-hangul 2.4.0의 `assemble`·`disassemble`만 묶은 IIFE(전역 `Hangul`). 워커가 content.js보다 먼저 주입. 다시 만드는 명령은 README 출처 |
 | `extension/words/ko.json`, `en.json` | 추천 단어 각 2만 개(빈도순). `scripts/build_words.py`로 생성, manifest `web_accessible_resources` |
@@ -65,7 +65,7 @@
 ## 메시지
 서버 ↔ 워커 (`/ws`, JSON)
 - 워커 → 서버: 처음 `{type:'auth', token}` (5초 안). 이후 `calibrationLog`, `stop`.
-- 서버 → 워커: `settings {click, select, calibration, scroll, keyboard}`(인증 직후 한 번), `status {message}`, `frame {...}`, `error {error, recoverable?}`. 토큰·origin이 틀리면 close 1008.
+- 서버 → 워커: `settings {click, select, calibration, scroll, keyboard, shortcuts}`(인증 직후 한 번), `status {message}`, `frame {...}`, `error {error, recoverable?}`. 토큰·origin이 틀리면 close 1008.
 - `frame` 필드: `valid, time(ms, 촬영 시각), eyesReady, closing, closed, openness, mouthOpen, mar, ear`. 시선이 나온 프레임에만 `gaze [yaw, pitch], gazeTime, captureAgeMs, inferenceMs, headRoll, headDistance(mm), headPitch, headYaw, iris`. 실패 시 `error`/`gazeError`.
 
 워커 ↔ 페이지 (`chrome.tabs.sendMessage` / `runtime.sendMessage`, 모두 `context`(UUID)로 오래된 페이지 메시지를 거른다)
@@ -80,7 +80,7 @@
 ## 조정 값 위치
 | 값 | 위치 | 현재 |
 |---|---|---|
-사용자가 바꿀 값은 모두 `config.toml`에 있다(뜻은 그 파일 주석). `[mouth]`·`[eyes]`는 `backend/gestures.py`가 읽고, `[click]`·`[select]`·`[calibration]`·`[scroll]`·`[keyboard]`는 서버가 `settings` 메시지로 확장에 보내 `core.js` `configure()`가 `SETTINGS`에 덮어쓴다. **`core.js` `SETTINGS` 기본값은 `config.toml`과 같게 둔다**(core.test가 비교한다). 값을 하나 더 늘릴 때는 config.toml, `SETTINGS`, 쓰는 곳을 같이 고친다.
+사용자가 바꿀 값은 모두 `config.toml`에 있다(뜻은 그 파일 주석). `[mouth]`·`[eyes]`는 `backend/gestures.py`가 읽고, `[click]`·`[select]`·`[calibration]`·`[scroll]`·`[keyboard]`는 서버가 `settings` 메시지로 확장에 보내 `core.js` `configure()`가 `SETTINGS`에 덮어쓴다. `core.js` `SETTINGS`의 숫자는 서버 값이 오기 전·테스트용 기본값이다(config.toml은 사용자가 고쳐 쓰므로 둘이 달라도 된다). 값을 하나 더 늘릴 때는 config.toml, `SETTINGS`, 쓰는 곳을 같이 고친다. 바로가기(`[shortcuts]`)는 `SETTINGS`가 아니라 `SHORTCUTS` 배열(http/https만, 최대 6개)
 
 | 값 | 위치 | 현재 |
 |---|---|---|

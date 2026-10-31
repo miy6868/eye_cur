@@ -27,7 +27,7 @@ reopen = 0.62   # 감은 뒤 이보다 커지면 다시 뜬 것
 [click]
 mode = "mouth"           # "mouth" = 입을 벌렸다 다물어 클릭, "eyes" = 양눈을 감았다 떠서 클릭
 mouth_min_ms = 500       # 이보다 짧게 벌리면 무시(말하기 등)
-mouth_max_ms = 2000      # 이보다 오래 벌리면 클릭 대신 메뉴. 진행 고리가 이 시간에 가득 찬다
+mouth_max_ms = 2000      # 이보다 오래 벌리면 클릭 대신 메뉴. 진행 고리에서 보라색이 시작되는 곳
 mouth_cooldown_ms = 800  # 클릭 직후 다시 클릭되지 않는 시간
 eyes_min_ms = 600        # 눈 감기 클릭: 이보다 짧은 깜빡임은 무시
 eyes_max_ms = 2000       # 이보다 오래 감으면 클릭 대신 메뉴
@@ -49,6 +49,11 @@ max_error = 0.15   # 보정 오차(화면 비율)가 이보다 크면 '그래도
 band = 0.25    # 화면 위·아래 이 비율 안을 보면 스크롤
 min_px = 150   # 띠 안쪽 끝의 속도(초당 px)
 max_px = 1200  # 화면 끝·밖의 속도
+
+[shortcuts]  # 메뉴의 바로가기 버튼. "이름" = "주소" (http/https만, 위에서부터 최대 6개, 3개씩 한 줄)
+"네이버" = "https://www.naver.com"
+"유튜브" = "https://www.youtube.com"
+"구글" = "https://www.google.com"
 
 [keyboard]
 height = 75  # 가상 키보드 높이(화면 높이의 %)

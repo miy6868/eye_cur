@@ -3,7 +3,7 @@
   globalThis.__gazeInstalled = true;
   // true: 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 고친다(클릭 보정). 효과를 아직 측정하지 않아 기본은 끔
   const CLICK_DRIFT = false;
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, SETTINGS, configure} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, configure} = globalThis.GazeCore;
   // 조정 값(config.toml → 서버 → settings 메시지). 객체를 잡아 두면 값이 바뀌어도 새 값을 본다
   const CLICK = SETTINGS.click, CAL = SETTINGS.calibration;
   // 클릭 방식: config.toml [click] mode. 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 양눈 감기 클릭
@@ -136,16 +136,18 @@
       #target{position:fixed;border:3px solid #21dba0;border-radius:5px;background:#21dba01a;box-shadow:0 0 0 2px #071b2a99}
       /* 입을 벌리는 동안은 주황색: 정보 상자를 꺼 두어도 클릭이 진행 중인지 보인다 */
       #target.arming{border-color:#f59e0b;background:#f59e0b2e}
-      /* 입을 벌리는 동안 커서 자리에 시계 방향으로 차는 고리(2초에 가득). 색: 회색 = 아직 짧음, 초록 = 클릭, 빨강 = 대상 없음, 보라 = 메뉴 */
-      #timer{position:fixed;width:44px;height:44px;transform:translate(-50%,-50%);--c:#9ca3af}
-      #ring{position:absolute;inset:0;border-radius:50%;background:conic-gradient(var(--c) var(--p,0deg),#0b122080 0);-webkit-mask:radial-gradient(circle,transparent 13px,#000 14px);mask:radial-gradient(circle,transparent 13px,#000 14px)}
-      #timer.click{--c:#21dba0}#timer.none{--c:#f87171}#timer.menu{--c:#a78bfa}
+      /* 입을 벌리는 동안 커서 자리에 시계 방향으로 차는 고리. 구간 색(회색 = 아직 짧음, 초록 = 클릭, 빨강 = 대상 없음, 보라 = 메뉴)을 옅게 미리 보여 주고 지난 만큼 진하게 칠한다(showTimer) */
+      #timer{position:fixed;width:44px;height:44px;transform:translate(-50%,-50%)}
+      #ring{position:absolute;inset:0;border-radius:50%;-webkit-mask:radial-gradient(circle,transparent 13px,#000 14px);mask:radial-gradient(circle,transparent 13px,#000 14px)}
       #timerLabel{position:absolute;top:calc(100% + 4px);left:50%;transform:translateX(-50%);white-space:nowrap;font:700 13px system-ui;color:#fff;background:#0b1220d9;border-radius:5px;padding:1px 7px}
       /* 메뉴·탭·키보드: 시선 오차가 커도 누를 수 있게 버튼을 화면 크기에 맞춰 크게 만든다 */
       #overlay{position:fixed;inset:0;font-family:system-ui;color:#fff}
       #overlay button{pointer-events:auto;font:700 4.4vh/1.15 system-ui;border-radius:2vh;background:#1f3350;border:3px solid #ffffff30;padding:1vh;overflow:hidden}
       .sheet{position:fixed;inset:0;background:#0b1220;display:grid;gap:2.5vh;padding:5vh 5vw;pointer-events:auto}
-      .menu{grid-template:repeat(2,1fr) .7fr/repeat(3,1fr)}
+      .menu{grid-template-columns:repeat(3,1fr)}
+      /* 닫기는 낮게(남는 자리를 바로가기에) 하고 살짝 붉게 해서 눈에 띄게 */
+      #overlay .close{background:#4a1d28;border-color:#f8717173}
+      #overlay .shortcut{background:#173a4a;font-size:3.6vh}
       .wide{grid-column:1/-1}
       .tabs{grid-template:repeat(2,1fr) .6fr/repeat(4,1fr)}
       .tabs .nav{grid-row:3}.tabs .middle{grid-column:2/4}
@@ -497,10 +499,15 @@
   function showTimer(elapsed) {
     const timer = shadow.querySelector('#timer'), target = clicker.target;
     const [x, y] = smooth || (target ? [target.rect[0] + target.rect[2] / 2, target.rect[1] + target.rect[3] / 2] : [innerWidth / 2, innerHeight / 2]);
-    const phase = mouthPhase(elapsed);
-    timer.className = phase === 'click' && !target ? 'none' : phase;
+    const phase = mouthPhase(elapsed), {fill, click, menu} = mouthRing(elapsed);
     timer.style.left = `${x}px`; timer.style.top = `${y}px`;
-    timer.style.setProperty('--p', `${Math.min(1, elapsed / CLICK.mouth_max_ms) * 360}deg`);
+    // 지난 구간은 진하게, 남은 구간은 옅게(66 = 40%): 다물면 무엇이 될지 미리 보인다
+    const parts = [[0, click, '#9ca3af'], [click, menu, target ? '#21dba0' : '#f87171'], [menu, 360, '#a78bfa']];
+    const stops = parts.flatMap(([from, to, color]) => {
+      const done = Math.min(Math.max(fill, from), to);
+      return [`${color} ${from}deg ${done}deg`, `${color}66 ${done}deg ${to}deg`];
+    });
+    shadow.querySelector('#ring').style.background = `conic-gradient(${stops.join(',')})`;
     shadow.querySelector('#timerLabel').textContent = phase === 'wait' ? '…' : phase === 'menu' ? (mode === 'menu' ? '메뉴 닫기' : '메뉴') :
       !target ? '대상 없음' : target === scrollExit ? '스크롤 끝' : '클릭';
     timer.hidden = false;
@@ -594,6 +601,8 @@
     overlay.hidden = !mode;
     if (mode === 'menu') {
       const sheet = make('div', 'sheet menu');
+      // 기본 버튼 두 줄 + 바로가기 줄(3개씩) + 낮은 닫기 줄
+      sheet.style.gridTemplateRows = `repeat(${2 + Math.ceil(SHORTCUTS.length / 3)}, 1fr) .45fr`;
       sheet.append(
         make('button', '', '← 뒤로', () => { setMode(null); history.back(); }),
         make('button', '', '앞으로 →', () => { setMode(null); history.forward(); }),
@@ -601,7 +610,8 @@
         make('button', '', '↕ 스크롤', () => setMode('scroll')),
         make('button', '', '▦ 탭', openTabs),
         make('button', '', '⌨ 키보드', () => setMode('keyboard')),
-        make('button', 'wide', '✕ 닫기', () => setMode(null)));
+        ...SHORTCUTS.map(([name, url]) => make('button', 'shortcut', `↗ ${name}`, () => { setMode(null); location.href = url; })),
+        make('button', 'wide close', '✕ 닫기', () => setMode(null)));
       overlay.append(sheet);
     }
     if (mode === 'scroll') {
@@ -619,7 +629,7 @@
         sheet.append(card);
       }
       sheet.append(tabPage > 0 ? make('button', 'nav', '◀ 이전', () => { tabPage--; render(); }) : make('div', 'nav'),
-        make('button', 'nav middle', '✕ 닫기', () => setMode(null)),
+        make('button', 'nav middle close', '✕ 닫기', () => setMode(null)),
         tabPage < last ? make('button', 'nav', '다음 ▶', () => { tabPage++; render(); }) : make('div', 'nav'));
       overlay.append(sheet);
     }
@@ -680,7 +690,7 @@
       make('button', '', kb.lang === 'ko' ? '한→영' : '영→한', () => { resetComposition(); kb.lang = kb.lang === 'ko' ? 'en' : 'ko'; kb.symbols = false; kb.shift = false; loadWords(kb.lang); render(); }),
       make('button', 'space', '스페이스', () => { if (!typingTarget()) return; resetComposition(); GazeDOM.type(0, ' '); render(); }),
       make('button', '', '⏎ 엔터', () => { const target = typingTarget(); if (!target) return; resetComposition(); GazeDOM.enter(target); render(); }),
-      make('button', '', '✕ 닫기', () => setMode(null)),
+      make('button', 'close', '✕ 닫기', () => setMode(null)),
       make('button', 'clear', '모두 삭제', () => { if (!typingTarget()) return; resetComposition(); GazeDOM.clear(); render(); }));
     board.append(controls);
     return board;
