@@ -11,7 +11,8 @@
 - 작업이 끝난 후 사용자가 확인할 방법을 알려준 뒤 git 커밋한 후 git 커밋했다고 간단히 명시적으로 사용자에게 알려준다. `git add -A` 대신 바꾼 파일만 add한다(편집기 임시 파일이 섞인 적이 있다).
 - 커밋 시에는 사용자가 수정한 config.toml과 CLAUDE.md를 포함한다.
 - 사용자가 확인하는 방법을 이미 몇번 알려준 적이 있고, 알려줄 방법이 똑같다면 아주 간략하게 말하도록 한다.
-- 파일의 역할, 메시지 형식, 코드만 봐선 모르는 사실(아래 지도·함정)이 바뀌면 이 파일과 README의 해당 부분도 같이 고친다. 함수 이름·현재 값은 이 파일에 적지 않는다(grep과 config.toml로 본다).
+- 파일의 역할, 메시지 형식, 코드만 봐선 모르는 사실(아래 지도·함정)이 바뀌면 이 파일과 문서의 해당 부분도 같이 고친다. 함수 이름·현재 값은 이 파일에 적지 않는다(grep과 config.toml로 본다).
+- 문서: `README.md`는 대문(빠른 시작만), `docs/guide.md`는 사용자용 설명서, `docs/agent/*.md`는 분야별 설계 이유·측정 기록(agent용). 사용법이 바뀌면 guide, 방식을 바꾸거나 실험하면 agent 문서에 이유·수치를 남긴다. 설정값은 자주 바뀌므로 문서에 숫자로 적지 않는다(실험 당시 값·측정 결과만 적는다).
 
 ## 전체 흐름
 ```
@@ -26,7 +27,7 @@
 ```
 - 시스템 마우스는 움직이지 않는다. 클릭은 `GazeDOM.press`: pointerdown·mousedown → `focus()` → pointerup·mouseup → `click()`.
 - iframe 속 요소: 모든 프레임에 manifest `content_scripts`로 core·dom·`frame.js`가 들어간다. content.js `askFrames`가 `frameRelay`로 워커에 부탁 → 워커가 `chrome.tabs.sendMessage(..., {frameId})`로 frame.js에 `frameCollect`/`frameClick` 전달. 좌표는 iframe 내용 왼쪽 위만큼 옮기고, id는 content.js가 `e`+번호로 다시 붙인다(맨 위 페이지 요소 id와 겹치지 않게).
-- 입을 2초 넘게 벌렸다 다물면(`MouthClick`/`Blink`의 `result === 'long'`) content.js `setMode('menu')`. 메뉴·탭·키보드 버튼은 shadow DOM `#overlay`의 `<button>`이고 `candidates()`가 페이지 요소와 같은 후보로 넣는다(`overlay: true`, 누르면 `element.click()`). 메뉴·탭 화면이면 그 버튼만 후보. 스크롤 모드는 대상 선택 대신 보이지 않는 끝내기 버튼(`scrollExit`)이 입 클릭 대상.
+- 입을 `[click]` 최대 시간보다 오래 벌렸다 다물면(`MouthClick`/`Blink`의 `result === 'long'`) content.js `setMode('menu')`. 메뉴·탭·키보드 버튼은 shadow DOM `#overlay`의 `<button>`이고 `candidates()`가 페이지 요소와 같은 후보로 넣는다(`overlay: true`, 누르면 `element.click()`). 메뉴·탭 화면이면 그 버튼만 후보. 스크롤 모드는 대상 선택 대신 보이지 않는 끝내기 버튼(`scrollExit`)이 입 클릭 대상.
 - 가상 키보드: 조합 중인 단어의 누른 키(`kb.jamo`)를 es-hangul `assemble`로 글자로 만들고, `textChange`로 바뀐 끝부분만 `GazeDOM.type`(execCommand delete/insertText)으로 고친다. 추천은 `words/*.json`을 `disassemble`한 자모 앞부분으로 찾는다(`suggest`).
 - 대상 선택은 `NearestSelector`(로컬). 외부 API는 쓰지 않는다(예전 Jev API 연동은 삭제).
 - 클릭 기본은 입 벌리기(`MouthClick`). config.toml `[click] mode = "eyes"`면 양눈 감기(`Blink`).
@@ -45,7 +46,7 @@
 | `extension/core.js` | DOM 없는 순수 계산(보정 회귀, 클릭 판정, 필터, 대상 선택, 추천 등). Node 테스트도 같은 파일을 `require`한다. `SETTINGS`는 서버 값이 오기 전 기본값 |
 | `extension/dom.js` | DOM 도우미(후보 수집, 가려짐 검사, 클릭 이벤트, 글자 입력, 스크롤 상자 찾기). 글자는 execCommand로 넣어야 React·contenteditable 편집기도 받아들인다. 후보 영역은 블록 상자 전체, 인라인 링크만 글자 줄(링크를 글자 줄로만 재면 카드·목차가 빠졌다). 선택자 밖의 JS 전용 버튼은 시선 주변 `cursor: pointer`로 찾는다 |
 | `extension/frame.js` | 맨 위가 아닌 프레임에서만 동작. 워커가 중계한 `frameCollect`/`frameClick`에만 답한다 |
-| `extension/vendor/es-hangul.js` | es-hangul의 `assemble`·`disassemble`만 묶은 파일(전역 `Hangul`). 다시 만드는 명령은 README 출처 |
+| `extension/vendor/es-hangul.js` | es-hangul의 `assemble`·`disassemble`만 묶은 파일(전역 `Hangul`). 다시 만드는 명령은 `docs/agent/keyboard.md` |
 | `extension/words/ko.json`, `en.json` | 추천 단어(빈도순). `scripts/build_words.py`로 생성, CC-BY-SA 4.0 |
 | `my_words.txt` | 사용자가 직접 넣는 추천 단어(한 줄에 하나, `#` 뒤 무시). 서버가 `settings.words`로 보내고 content.js가 빈도 목록 끝에 붙인다(우선순위 없이 같은 단어 취급, 사용자 요청). 한글이 있으면 한글 키보드용. ANSI로 저장돼 못 읽으면 연결은 유지하고 빈 목록 |
 | `extension/popup.html`, `popup.js` | 토큰 입력, 시작/다시 보정/중지, 상태, 스위치 두 개(정보 표시, 키보드 자동 표시) |
