@@ -90,7 +90,7 @@
 | 입 클릭 시간·쿨다운 | `config.toml` `[click] mouth_min_ms`/`mouth_max_ms`/`mouth_cooldown_ms` | 500 / 2000 / 800ms (max 넘으면 메뉴) |
 | 눈 클릭 시간·쿨다운 | `config.toml` `[click] eyes_min_ms`/`eyes_max_ms`/`eyes_cooldown_ms` | 600 / 2000 / 800ms |
 | 선택 머무름·끈적임 | `config.toml` `[select] dwell_ms`/`switch_margin_px` | 300ms / 30px |
-| 보정 시간 | `config.toml` `[calibration] lead_ms`/`settle_ms`/`collect_ms`/`min_records`/`timeout_ms` | 500 / 800 / 800ms / 3개 / 2100ms |
+| 보정 시간 | `config.toml` `[calibration] lead_ms`/`settle_ms`/`collect_ms`/`min_records`/`timeout_ms` | 500 / 800 / 600ms / 3개 / 2100ms |
 | 보정 통과 기준 | `config.toml` `[calibration] max_error` | 화면 비율 0.15 |
 | 스크롤 띠·속도 | `config.toml` `[scroll] band`/`min_px`/`max_px` | 화면 위·아래 25% / 초당 150~1200px |
 | 키보드 높이 | `config.toml` `[keyboard] height` | 화면 75% (시선 상하 정확도가 낮아 키를 세로로 길게) |

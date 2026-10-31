@@ -29,7 +29,7 @@
   let lockGaze = null; // 클릭 대상이 고정되는 순간의 예측 위치(px): 클릭이 끝나면 드리프트 보정에 쓴다
   const GRAPH_MS = 3000;
   const JITTER_MS = 1500;
-  // 9점 응시 보정 시간은 config.toml [calibration] (CAL.settle_ms 등). 기본: 점마다 0.8초는 눈이 옮겨 가는 시간이라 버리고, 0.8초 동안 표본을 모은다.
+  // 9점 응시 보정 시간은 config.toml [calibration] (CAL.settle_ms 등). 기본: 점마다 0.8초는 눈이 옮겨 가는 시간이라 버리고, 0.6초 동안 표본을 모은다(0.8초와 정확도가 거의 같았다).
   // 0.8초인 이유: 눈꺼풀은 눈보다 늦게 내려와서, 아래쪽 점에서는 0.5초가 지나도 시선 값이 계속 바뀌었다.
   // 기록 2개에서 0.8~1초 뒤 값만 쓰면 아래 줄 오차가 줄었다(88→57px, 106→80px)
   // 보정을 켜면 첫 점이 (서버·모델 준비와 상관없이) 바로 한 번 작아지며 눈길을 끌고, 그 뒤 CAL.lead_ms 더 기다렸다가 첫 점 시계를 시작한다
@@ -171,7 +171,7 @@
       #overlay .on{background:#176cff}
       .empty{border-radius:2vh;background:#ffffff08}
       </style>
-      <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 약 30초</div><div id="next"></div><div id="dot"></div><div id="choices" hidden><button id="use">그래도 사용</button><button id="retry">다시 보정</button></div></div>
+      <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 약 27초</div><div id="next"></div><div id="dot"></div><div id="choices" hidden><button id="use">그래도 사용</button><button id="retry">다시 보정</button></div></div>
       <div id="overlay" hidden></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div><div id="timer" hidden><div id="ring"></div><div id="timerLabel"></div></div>
       <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="drift"></span><span id="eyesize"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas></div>`;
