@@ -37,6 +37,7 @@ class SocketTests(unittest.TestCase):
                 settings = ws.receive_json()
                 self.assertEqual(settings['type'], 'settings')
                 self.assertEqual(settings['click']['mode'], 'mouth')
+                self.assertTrue(all(url.startswith('http') for url in settings['shortcuts'].values()))
                 self.assertEqual(ws.receive_json()['type'], 'status')
                 self.assertEqual(ws.receive_json()['type'], 'status')
                 self.assertEqual(ws.receive_json()['type'], 'frame')

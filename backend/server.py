@@ -85,7 +85,7 @@ async def socket(ws: WebSocket):
 
     try:
         # 확장이 쓰는 조정 값(config.toml). 워커가 기억했다가 새로 붙는 페이지에도 넘긴다
-        await send({"type": "settings", **{name: CONFIG.get(name, {}) for name in ("click", "select", "calibration", "scroll", "keyboard")}})
+        await send({"type": "settings", **{name: CONFIG.get(name, {}) for name in ("click", "select", "calibration", "scroll", "keyboard", "shortcuts")}})
         await send({"type": "status", "message": "CPU 모델과 카메라 준비 중…"})
         from backend.tracker import Tracker
         tracker = await loop.run_in_executor(executor, Tracker)
