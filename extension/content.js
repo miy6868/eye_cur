@@ -141,10 +141,10 @@
       /* 입을 벌리는 동안은 주황색: 정보 상자를 꺼 두어도 클릭이 진행 중인지 보인다 */
       #target.arming{border-color:#f59e0b;background:#f59e0b2e}
       /* 입을 벌리는 동안 커서 자리에 시계 방향으로 차는 고리(2초에 가득). 색: 회색 = 아직 짧음, 초록 = 클릭, 빨강 = 대상 없음, 보라 = 메뉴 */
-      #timer{position:fixed;width:76px;height:76px;transform:translate(-50%,-50%);--c:#9ca3af}
-      #ring{position:absolute;inset:0;border-radius:50%;background:conic-gradient(var(--c) var(--p,0deg),#0b122080 0);-webkit-mask:radial-gradient(circle,transparent 23px,#000 24px);mask:radial-gradient(circle,transparent 23px,#000 24px)}
+      #timer{position:fixed;width:44px;height:44px;transform:translate(-50%,-50%);--c:#9ca3af}
+      #ring{position:absolute;inset:0;border-radius:50%;background:conic-gradient(var(--c) var(--p,0deg),#0b122080 0);-webkit-mask:radial-gradient(circle,transparent 13px,#000 14px);mask:radial-gradient(circle,transparent 13px,#000 14px)}
       #timer.click{--c:#21dba0}#timer.none{--c:#f87171}#timer.menu{--c:#a78bfa}
-      #timerLabel{position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);white-space:nowrap;font:700 18px system-ui;color:#fff;background:#0b1220d9;border-radius:6px;padding:2px 10px}
+      #timerLabel{position:absolute;top:calc(100% + 4px);left:50%;transform:translateX(-50%);white-space:nowrap;font:700 13px system-ui;color:#fff;background:#0b1220d9;border-radius:5px;padding:1px 7px}
       /* 메뉴·탭·키보드: 시선 오차가 커도 누를 수 있게 버튼을 화면 크기에 맞춰 크게 만든다 */
       #overlay{position:fixed;inset:0;font-family:system-ui;color:#fff}
       #overlay button{pointer-events:auto;font:700 4.4vh/1.15 system-ui;border-radius:2vh;background:#1f3350;border:3px solid #ffffff30;padding:1vh;overflow:hidden}
