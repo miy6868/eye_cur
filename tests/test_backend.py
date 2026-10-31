@@ -56,11 +56,6 @@ class SocketTests(unittest.TestCase):
         self.assertEqual(self.client.get('/health').json()['device'], 'cpu')
         self.assertIn('클릭 0회', self.client.get('/demo').text)
 
-    def test_health_tells_extension_whether_to_shrink_window(self):
-        self.assertTrue(self.client.get('/health').json()['shrinkWindow'])
-        with patch.dict(os.environ, {'SHRINK_WINDOW': '0'}):
-            self.assertFalse(self.client.get('/health').json()['shrinkWindow'])
-
     def test_bad_origin_and_token(self):
         with self.assertRaises(WebSocketDisconnect):
             with self.client.websocket_connect('/ws', headers={'origin': 'https://example.com'}): pass

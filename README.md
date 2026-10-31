@@ -77,7 +77,7 @@ Linux에서는 `.venv/Scripts/python.exe` 대신 `.venv/bin/python`을 씁니다
 
 선택 사항: Playwright가 설치된 환경에서 `node tests/browser.cjs`로 실제 DOM에 가상 시선과 Jev 응답을 주입하는 통합 테스트를 실행합니다. `PLAYWRIGHT_PATH`와 `CHROME_PATH`로 실행 경로를 지정할 수 있습니다. 이 테스트는 실제 사용자 정확도나 Jev 품질을 측정하지 않습니다.
 
-카메라가 열리지 않으면 Windows 카메라 권한(Linux는 `/dev/video*` 접근 권한, 보통 `video` 그룹), 다른 프로그램의 카메라 점유, `.env`의 `CAMERA_INDEX`를 확인합니다. API 키를 바꾸면 서버를 다시 시작합니다. CPU 스레드는 `.env`의 `CPU_THREADS`로 조절합니다. 비워 두면 자동으로 논리 코어 수의 절반(2~8개)을 씁니다. 이 노트북(논리 코어 16개)에서 얼굴 점 찾기와 함께 재 보니 int8 모델이 4개 57ms, 6개 46ms, 8개 41ms였고 12·16개는 서로 CPU를 다퉈 오히려 느렸습니다. 카메라가 여러 대면 서버 시작 때 터미널에 목록이 나오고 번호를 골라 쓸 수 있습니다(Enter는 `.env`의 `CAMERA_INDEX`). 확장을 시작하면 Chrome 창을 줄여 화면 양옆(6%)·아래(15%)에 여백을 두고, 중지하면 원래 크기로 되돌립니다. 여백 비율은 `extension/core.js`의 `MARGIN_SIDE`, `MARGIN_BOTTOM`에서 바꿉니다. Linux의 `start.sh`는 `SHRINK_WINDOW=0`으로 창 줄이기를 끕니다. Hyprland 같은 타일링 창 관리자는 창 크기를 직접 정해서, 확장이 창을 줄이면 타일 크기와 어긋나 화면이 깨지기 때문입니다. 팝업이 시작할 때 서버의 `/health`에서 이 값을 읽습니다(서버가 꺼져 있으면 줄입니다).
+카메라가 열리지 않으면 Windows 카메라 권한(Linux는 `/dev/video*` 접근 권한, 보통 `video` 그룹), 다른 프로그램의 카메라 점유, `.env`의 `CAMERA_INDEX`를 확인합니다. API 키를 바꾸면 서버를 다시 시작합니다. CPU 스레드는 `.env`의 `CPU_THREADS`로 조절합니다. 비워 두면 자동으로 논리 코어 수의 절반(2~8개)을 씁니다. 이 노트북(논리 코어 16개)에서 얼굴 점 찾기와 함께 재 보니 int8 모델이 4개 57ms, 6개 46ms, 8개 41ms였고 12·16개는 서로 CPU를 다퉈 오히려 느렸습니다. 카메라가 여러 대면 서버 시작 때 터미널에 목록이 나오고 번호를 골라 쓸 수 있습니다(Enter는 `.env`의 `CAMERA_INDEX`).
 
 ### 0.2.7 적용
 

@@ -6,7 +6,7 @@ const {randomUUID} = require('node:crypto');
 
 // stored: 가짜 chrome.storage.local 내용. 같은 객체를 넘기면 워커를 다시 켠 상황을 흉내 낸다
 function harness(stored = {}) {
-  const handlers = {}, sent = [], sockets = [], injected = [], windowUpdates = [];
+  const handlers = {}, sent = [], sockets = [], injected = [];
   let keepAwake = null; // 가짜 chrome.power: 지금 요청 중인 화면 유지 단계
   const event = name => ({addListener: fn => { handlers[name] = fn; }});
   let selected = 1;
@@ -38,8 +38,7 @@ function harness(stored = {}) {
       if (failInjection) { failInjection = false; throw new Error('Frame was removed.'); }
       injected.push(args.target.tabId); if (delayedInjection) { const fn = delayedInjection; delayedInjection = null; await fn(); }
     }},
-    windows: {WINDOW_ID_NONE: -1, get: async () => ({id: 1, focused, state: 'maximized'}), onFocusChanged: event('focus'),
-      update: async (id, info) => { windowUpdates.push(info); }},
+    windows: {WINDOW_ID_NONE: -1, get: async () => ({id: 1, focused}), onFocusChanged: event('focus')},
     power: {requestKeepAwake: level => { keepAwake = level; }, releaseKeepAwake: () => { keepAwake = null; }},
     storage: {local: {
       get: async key => (key in stored ? {[key]: stored[key]} : {}),
@@ -58,7 +57,7 @@ function harness(stored = {}) {
     handlers.message(body, sender, reply => { response = reply; });
     await flush(); return response;
   };
-  return {sent, sockets, injected, handlers, windowUpdates, message, flush,
+  return {sent, sockets, injected, handlers, message, flush,
     activate: async id => { selected = id; handlers.activated({tabId: id, windowId: 1}); await flush(); },
     focus: async value => { focused = value; handlers.focus(value ? 1 : -1); await flush(); },
     delayNext: fn => { delayedInjection = fn; },
@@ -196,17 +195,6 @@ test('calibration log from the current page is forwarded to the server', async (
   h.sockets[0].open();
   await h.message({type: 'calibrationLog', context: h.current().context, lag: 100}, {tab: {id: 1}});
   assert.equal(h.sockets[0].messages.find(m => m.type === 'calibrationLog').lag, 100);
-});
-
-test('start shrinks the window for edge margins and stop restores it', async () => {
-  const h = harness();
-  const bounds = {left: 115, top: 0, width: 1690, height: 884};
-  await h.message({type: 'start', tabId: 1, token: 'test', bounds});
-  // 최대화 창은 먼저 보통 창으로 바꾼 뒤 크기를 줄인다
-  assert.equal(JSON.stringify(h.windowUpdates), JSON.stringify([{state: 'normal'}, bounds]));
-  assert.equal(h.current().tabId, 1);
-  await h.message({type: 'stop'});
-  assert.equal(h.windowUpdates.at(-1).state, 'maximized');
 });
 
 test('screen stays awake while running and is released on stop', async () => {
