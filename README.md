@@ -1,6 +1,6 @@
-# 시선 클릭
+# eye_cur
 
-웹캠으로 시선을 읽어 웹페이지의 버튼·링크를 고르고, **입을 벌렸다 다물면 클릭**합니다.
+웹캠으로 시선을 추적해 웹페이지의 버튼·링크를 고르고, 입을 벌렸다 다물면 클릭합니다.
 GPU 없이 CPU만으로 돌아갑니다.
 
 ## 빠른 시작
@@ -9,10 +9,10 @@ GPU 없이 CPU만으로 돌아갑니다.
 
 | Windows | Linux |
 |---|---|
-| [uv](https://docs.astral.sh/uv/getting-started/installation/) 설치 후, `C:\eye_cur`처럼 **영어 경로**에서 | `sudo pacman -S uv` 후 |
+| [uv](https://docs.astral.sh/uv/getting-started/installation/) 설치 후, `C:\eye_cur`처럼 **한글이 없는 영어 경로**에서 | `sudo pacman -S uv` 후 |
 | `powershell -ExecutionPolicy Bypass -File .\setup.ps1` | `./setup.sh` |
 
-Chrome `chrome://extensions` → 개발자 모드 → **압축해제된 확장 프로그램을 로드합니다** → `extension` 폴더.
+Chrome `chrome://extensions` → 개발자 모드 → **압축해제된 확장 프로그램 로드** → `extension` 폴더.
 
 **2. 실행**
 
@@ -28,9 +28,6 @@ Chrome `chrome://extensions` → 개발자 모드 → **압축해제된 확장 �
 
 ## 문서
 - [사용 설명서](docs/guide.md): 메뉴·키보드·설정·문제 해결
-- [개발 기록](docs/agent/): 설계 이유와 측정 수치
-
-시험용 페이지: `http://127.0.0.1:8765/demo`
 
 ---
 개인·연구용 시제품입니다. 시선 모델 [UniGaze](https://github.com/ut-vision/UniGaze)는 비상업 라이선스입니다. 출처는 [사용 설명서](docs/guide.md#출처)에 있습니다.
