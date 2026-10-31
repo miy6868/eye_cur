@@ -5,7 +5,7 @@
   const SETTINGS = {
     click: {mode: 'mouth', mouth_min_ms: 500, mouth_max_ms: 2000, mouth_cooldown_ms: 800, eyes_min_ms: 600, eyes_max_ms: 2000, eyes_cooldown_ms: 800},
     select: {dwell_ms: 300, switch_margin_px: 30},
-    calibration: {lead_ms: 500, settle_ms: 800, collect_ms: 800, min_records: 3, timeout_ms: 2100, max_error: .15},
+    calibration: {lead_ms: 500, settle_ms: 800, collect_ms: 600, min_records: 3, timeout_ms: 2100, max_error: .15},
     scroll: {band: .25, min_px: 150, max_px: 1200},
     keyboard: {height: 75},
   };
