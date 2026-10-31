@@ -9,6 +9,7 @@
   - `node --test tests/core.test.cjs tests/worker.test.cjs`
   - `.venv/bin/python -m unittest discover -s tests -p 'test_*.py'` (카메라 선택 출력이 섞여 나오는 것은 정상. 마지막 `OK`만 확인)
 - 작업이 끝난 후 사용자가 확인할 방법을 알려준 뒤 git 커밋한 후 git 커밋했다고 간단히 명시적으로 사용자에게 알려준다. `git add -A` 대신 바꾼 파일만 add한다(편집기 임시 파일이 섞인 적이 있다).
+- 커밋 시에는 사용자가 수정한 config.toml과 CLAUDE.md를 포함한다.
 - 사용자가 확인하는 방법을 이미 몇번 알려준 적이 있고, 알려줄 방법이 똑같다면 아주 간략하게 말하도록 한다.
 - 파일의 역할, 메시지 형식, 코드만 봐선 모르는 사실(아래 지도·함정)이 바뀌면 이 파일과 README의 해당 부분도 같이 고친다. 함수 이름·현재 값은 이 파일에 적지 않는다(grep과 config.toml로 본다).
 
@@ -42,7 +43,7 @@
 | `extension/worker.js` | 서비스 워커: 서버 소켓 1개, 지금 보는 탭 하나에만 붙인다. 보정·서버 `settings`를 기억했다가 새로 붙는 탭에 넘긴다. iframe 중계, 탭 목록·전환, 실행 중 화면 꺼짐 방지 |
 | `extension/content.js` | 페이지 쪽 전부(보정 화면, 커서, 대상 선택, 클릭, 메뉴·스크롤·탭·키보드 화면). UI는 닫힌 shadow DOM. 화면에 띄운 버튼도 페이지 요소와 같은 후보로 골라 입 클릭으로 누른다. 이미 초점이 있는 입력칸은 focusin이 다시 안 나서 시선 클릭 뒤에도 키보드를 연다 |
 | `extension/core.js` | DOM 없는 순수 계산(보정 회귀, 클릭 판정, 필터, 대상 선택, 추천 등). Node 테스트도 같은 파일을 `require`한다. `SETTINGS`는 서버 값이 오기 전 기본값 |
-| `extension/dom.js` | DOM 도우미(후보 수집, 가려짐 검사, 클릭 이벤트, 글자 입력, 스크롤 상자 찾기). 글자는 execCommand로 넣어야 React·contenteditable 편집기도 받아들인다 |
+| `extension/dom.js` | DOM 도우미(후보 수집, 가려짐 검사, 클릭 이벤트, 글자 입력, 스크롤 상자 찾기). 글자는 execCommand로 넣어야 React·contenteditable 편집기도 받아들인다. 후보 영역은 블록 상자 전체, 인라인 링크만 글자 줄(링크를 글자 줄로만 재면 카드·목차가 빠졌다). 선택자 밖의 JS 전용 버튼은 시선 주변 `cursor: pointer`로 찾는다 |
 | `extension/frame.js` | 맨 위가 아닌 프레임에서만 동작. 워커가 중계한 `frameCollect`/`frameClick`에만 답한다 |
 | `extension/vendor/es-hangul.js` | es-hangul의 `assemble`·`disassemble`만 묶은 파일(전역 `Hangul`). 다시 만드는 명령은 README 출처 |
 | `extension/words/ko.json`, `en.json` | 추천 단어(빈도순). `scripts/build_words.py`로 생성, CC-BY-SA 4.0 |

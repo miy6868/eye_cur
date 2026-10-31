@@ -1,15 +1,22 @@
 (() => {
   if (globalThis.GazeDOM) return;
-  const selector = 'button,a[href],input:not([type="hidden"]),select,textarea,[role="button"],[role="link"],[role="checkbox"],[tabindex="0"]';
+  // 메뉴 항목(role=menuitem 등)은 보통 tabindex="-1"이라 역할로 따로 넣는다. summary = 접기/펴기, label = 연결된 입력칸·체크박스를 누른다,
+  // [onclick] = 옛날식 사이트(학교·관공서)의 눌리는 표 칸·그림
+  const selector = 'button,a[href],input:not([type="hidden"]),select,textarea,summary,label,[onclick],[tabindex="0"],' +
+    ['button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'option', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'treeitem'].map(role => `[role="${role}"]`).join(',');
   const rectArray = r => [r.x, r.y, r.width, r.height];
   const inView = r => r[2] >= 3 && r[3] >= 3 && r[0] + r[2] > 0 && r[1] + r[3] > 0 && r[0] < innerWidth && r[1] < innerHeight;
   function canonical(element) { return element.closest('a[href],button') || element; }
   function titleOf(element) { return element.querySelector('h1,h2,h3,[role="heading"]'); }
   function regions(element) {
+    const boxes = () => [...element.getClientRects()].map(rectArray).filter(inView);
+    // 블록·인라인 블록·flex 상자(카드, 메뉴 항목, 목차 줄, 아이콘 버튼)는 마우스처럼 상자 전체를 눌리는 곳으로 본다.
+    // 예전에는 링크를 글자 줄로만 재서 카드의 그림이나 글자 옆 빈칸을 보면 멀다고 빠졌다
+    const display = getComputedStyle(element).display;
+    if (display !== 'inline' && display !== 'contents') return boxes();
     const title = titleOf(element);
     const rectangles = [];
-    // Inline anchors can have zero-height bounds around block headings. Text lines
-    // also avoid treating the empty gap between wrapped link lines as clickable.
+    // 줄바꿈된 인라인 링크는 글자 줄만 쓴다: 상자로 재면 줄 사이 빈 곳도 눌리는 곳이 된다
     if (title || element.matches('a[href]')) {
       const walker = document.createTreeWalker(title || element, NodeFilter.SHOW_TEXT);
       let node;
@@ -21,13 +28,15 @@
         rectangles.push(...[...range.getClientRects()].map(rectArray));
       }
     }
-    if (!rectangles.length) rectangles.push(...[...element.getClientRects()].map(rectArray));
-    return rectangles.filter(inView);
+    // 인라인 상자 조각도 더한다: 아이콘만 있는 링크(글자는 화면 읽기용으로 숨김), 블록을 감싼 인라인 링크(Chrome은 그 블록을 조각에 넣는다)
+    return [...rectangles.filter(inView), ...boxes()];
   }
   function available(element, rect) {
     if (!element.isConnected || !rect || !inView(rect) || element.matches(':disabled') || element.closest('[inert],[aria-disabled="true"]')) return false;
     const style = getComputedStyle(element);
-    if (style.visibility !== 'visible' || style.display === 'none' || Number(style.opacity) === 0) return false;
+    // 투명(opacity 0)은 빼지 않는다: 위키백과 메뉴처럼 아이콘 위에 투명한 체크박스를 덮은 사이트가 있고, 마우스도 그것을 누른다.
+    // 정말 안 보이는 것은 아래 elementFromPoint 검사(pointer-events 없음·가려짐)에서 빠진다
+    if (style.visibility !== 'visible' || style.display === 'none') return false;
     const [x, y, w, h] = rect;
     const left = Math.max(0, x), right = Math.min(innerWidth - 1, x + w);
     const top = Math.max(0, y), bottom = Math.min(innerHeight - 1, y + h);
@@ -37,9 +46,22 @@
     }
     return false;
   }
+  // 가까운 조각부터 가려짐을 검사해 처음 보이는 것(가려짐 검사는 elementFromPoint 5번이라 비싸다)
   function nearestRegion(element, x, y) {
-    return regions(element).filter(r => available(element, r)).sort((a, b) =>
-      GazeCore.distanceToRect(x, y, a) - GazeCore.distanceToRect(x, y, b))[0];
+    return regions(element).sort((a, b) => GazeCore.distanceToRect(x, y, a) - GazeCore.distanceToRect(x, y, b)).find(r => available(element, r));
+  }
+  // 선택자에 안 걸리지만 마우스를 올리면 손가락 모양인 것(자바스크립트로만 눌리는 div·li 등). 시선과 그 둘레 8곳 아래만 본다.
+  // cursor는 자식에게 물려주므로, 손가락 모양이 시작되는 가장 바깥 요소를 고른다. 화면 절반보다 큰 것(페이지 전체에 pointer를 준 사이트)은 뺀다
+  function pointerTargets(x, y, radius) {
+    const found = new Set();
+    for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [.7, .7], [-.7, .7], [.7, -.7], [-.7, -.7]]) {
+      let element = document.elementFromPoint(x + dx * radius / 2, y + dy * radius / 2);
+      if (!element || getComputedStyle(element).cursor !== 'pointer') continue;
+      while (element.parentElement && element.parentElement !== document.body && getComputedStyle(element.parentElement).cursor === 'pointer') element = element.parentElement;
+      const r = element.getBoundingClientRect();
+      if (element !== document.body && r.width * r.height < innerWidth * innerHeight / 2) found.add(element);
+    }
+    return found;
   }
   function unchanged(item) {
     if (!item.element.isConnected || item.href !== (item.element.getAttribute('href') || '')) return false;
@@ -47,7 +69,7 @@
   }
   function collect(x, y, radius, identify) {
     const seen = new Set(), items = [];
-    for (const raw of document.querySelectorAll(selector)) {
+    for (const raw of [...document.querySelectorAll(selector), ...pointerTargets(x, y, radius)]) {
       const element = canonical(raw);
       if (seen.has(element)) continue;
       seen.add(element);
