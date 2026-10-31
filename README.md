@@ -1,11 +1,11 @@
-# Gaze + Jev: 시선으로 웹페이지 누르기 (CPU 전용)
+# 시선 클릭: 시선으로 웹페이지 누르기 (CPU 전용)
 
 웹캠으로 시선을 읽어 Chrome 웹페이지의 버튼·링크를 고르고, 입을 벌렸다 다물면 클릭합니다.
 
 ```
 웹캠 → MediaPipe 얼굴 점 → 얼굴 정규화 → UniGaze-B(ONNX Runtime, CPU) → 시선 각도
      → 로컬 서버(WebSocket) → Chrome 확장 → 9점 보정 회귀 → 화면 좌표 → 떨림 필터
-     → 가까운 요소 선택(NearestSelector, 또는 Jev API) → 입 벌리기 클릭
+     → 가까운 요소 선택(NearestSelector) → 입 벌리기 클릭
 ```
 
 - Windows 또는 Linux + Chrome, 모니터 한 대에서 쓰는 개인·연구용 시제품입니다.
@@ -37,7 +37,7 @@ Arch 기본 Python 3.13에는 `mediapipe 0.10.21` 휠이 없어서 `setup.sh`가
 
 ## 사용
 1. 서버 실행: Windows `powershell -ExecutionPolicy Bypass -File .\start.ps1`, Linux `./start.sh`.
-   - 카메라가 여러 대면 번호를 묻습니다(Enter = `.env`의 `CAMERA_INDEX`).
+   - 카메라가 여러 대면 번호를 묻습니다(Enter = `config.toml`의 `camera_index`).
    - 콘솔에 나오는 **연결 토큰**을 복사합니다(`runtime.json`에도 있습니다). Windows 10 콘솔에서 글자를 선택한 채로 두면 서버가 멈추므로, 복사한 뒤 `Esc`를 누릅니다.
 2. `http://127.0.0.1:8765/demo`(시험용 페이지)나 아무 일반 웹페이지를 엽니다.
 3. 확장 아이콘 → 토큰 입력 → **시작**.
@@ -70,18 +70,16 @@ Arch 기본 Python 3.13에는 `mediapipe 0.10.21` 휠이 없어서 `setup.sh`가
 코드를 바꾼 뒤에는 서버를 `Ctrl+C`로 끄고 다시 실행합니다. 확장 관리에서 확장을 새로고침한 다음 **사용할 웹페이지도 새로고침**합니다. 이미 열려 있던 탭에는 옛 스크립트가 남아 있기 때문입니다.
 
 ## 설정
-`.env`(처음 setup 때 `.env.example`에서 복사됩니다):
+`config.toml`(저장소에 들어 있습니다. 비밀값이 없어서 그대로 고쳐 쓰면 됩니다. 바꾼 뒤에는 서버를 다시 시작합니다):
 
 | 키 | 뜻 |
 |---|---|
-| `CAMERA_INDEX` | 기본 카메라 번호 |
-| `CPU_THREADS` | 시선 모델 스레드 수. 비우면 논리 코어 수의 절반(2~8개) |
-| `GAZE_INT8` | 1(기본) = int8 모델, 0 = fp32 모델 |
-| `CAMERA_INTRINSICS` | 측정한 카메라 내부 파라미터 JSON(`camera_matrix`, `dist_coefficients`). 비우면 추정값 |
-| `TYPESAFE_API_KEY` | Jev를 쓸 때만 필요. 바꾸면 서버를 다시 시작합니다 |
+| `camera_index` | 기본 카메라 번호(기본 0) |
+| `cpu_threads` | 시선 모델 스레드 수. 0(기본)이면 논리 코어 수의 절반(2~8개) |
+| `gaze_int8` | `true`(기본) = int8 모델, `false` = fp32 모델 |
+| `camera_intrinsics` | 측정한 카메라 내부 파라미터 JSON 파일 경로(`camera_matrix`, `dist_coefficients`). 비우면 추정값 |
 
 코드 안 스위치(`extension/content.js` 위쪽):
-- `USE_JEV`(기본 `false`): `true`면 대상 선택을 Jev API에 맡깁니다. `.env`에 [TypeSafe 콘솔](https://console.typesafe.ai/)에서 받은 키가 있어야 합니다.
 - `CLICK_MODE`(기본 `'mouth'`): `'eyes'`면 양눈을 0.6~2.0초 감았다 떠서 클릭합니다.
 - `CLICK_DRIFT`(기본 `false`): `true`면 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 절반만큼 고칩니다.
 
@@ -93,9 +91,9 @@ node --test tests/core.test.cjs tests/worker.test.cjs
 .venv/bin/python -m unittest discover -s tests -p 'test_*.py'     # Windows: .venv/Scripts/python.exe
 .venv/bin/python scripts/check_cpu.py                             # 카메라 없이 모델 로딩·속도
 ```
-선택 사항: Playwright가 있으면 `node tests/browser.cjs`가 demo.html에 가상 시선과 Jev 응답을 넣어 확인합니다(`PLAYWRIGHT_PATH`, `CHROME_PATH`). 이 테스트들은 실제 사용자 정확도를 재지 않습니다.
+이 테스트들은 실제 사용자 정확도를 재지 않습니다.
 
-카메라가 열리지 않으면 카메라 권한(Linux는 `/dev/video*` 권한, 보통 `video` 그룹), 다른 프로그램의 카메라 점유, `CAMERA_INDEX`를 확인합니다.
+카메라가 열리지 않으면 카메라 권한(Linux는 `/dev/video*` 권한, 보통 `video` 그룹), 다른 프로그램의 카메라 점유, `config.toml`의 `camera_index`를 확인합니다.
 
 ## 설계 결정과 측정 기록
 다시 시도하지 않도록 남겨 둔 이유와 수치입니다.
@@ -136,13 +134,11 @@ node --test tests/core.test.cjs tests/worker.test.cjs
 - 스크롤 모드는 같은 주소의 iframe 안(네이버 블로그·카페 본문)은 스크롤하지만, 다른 주소의 iframe 안(네이버 지도 목록 등)은 스크롤하지 못합니다. 가상 키보드는 맨 위 문서의 입력칸에만 쓰고, iframe·Shadow DOM 속 입력칸에는 못 씁니다.
 - 탭 닫기는 실수로 누르면 되돌리기 어려워 메뉴에 넣지 않았습니다.
 - 정확도는 사람과 카메라에 따라 달라서 실제 보정으로 확인해야 합니다.
-- `USE_JEV = true`면 시선 주변 후보 최대 8개(이름·역할·사각형·거리)와 최근 시선 좌표를 TypeSafe Jev(`jev-latest`)에 보냅니다. 최대 초당 2.5회 호출하고 API 비용이 듭니다. 영상, 입력칸 값, 페이지 HTML, API 키는 보내지 않지만, 버튼 글자 자체가 민감한 페이지라면 그 글자가 전달됩니다. API 실패나 지연 시에는 선택을 보류하고, 다른 방식으로 대체하지 않습니다.
-- 로컬 서버는 `127.0.0.1:8765`에서만 받고, 확장 origin과 연결 토큰을 검사합니다. 토큰(`runtime.json`)과 키(`.env`)는 git에서 제외합니다.
+- 로컬 서버는 `127.0.0.1:8765`에서만 받고, 확장 origin과 연결 토큰을 검사합니다. 토큰(`runtime.json`)은 git에서 제외합니다. 외부 API로는 아무것도 보내지 않습니다.
 
 ## 출처
 - [UniGaze](https://github.com/ut-vision/UniGaze), Qin, Zhang & Sugano, WACV 2026. `vendor/NOTICE.md` 참고.
 - [공식 UniGaze-B 가중치](https://huggingface.co/UniGaze/UniGaze-models/blob/main/unigaze_b16_joint.safetensors). 다운로드에 실패하면 `models/unigaze_b16_joint.safetensors`로 저장하고 `scripts/download_models.py`를 다시 실행합니다.
-- [TypeSafe/Jev API](https://docs.typesafe.ai/introduction/quickstart).
 - [es-hangul](https://github.com/toss/es-hangul) 2.4.0 (MIT, Viva Republica): 가상 키보드의 한글 조합(`assemble`)과 자모 분해(`disassemble`). `extension/vendor/es-hangul.js`는 그 두 함수만 esbuild로 묶은 것입니다: `echo "export {assemble, disassemble} from 'es-hangul';" > entry.js && npx esbuild entry.js --bundle --minify --format=iife --global-name=Hangul --outfile=extension/vendor/es-hangul.js`.
 - 추천 단어: [hermitdave/FrequencyWords](https://github.com/hermitdave/FrequencyWords) (OpenSubtitles 2018 단어 빈도, CC-BY-SA 4.0). `scripts/build_words.py`가 한국어·영어 상위 2만 개(두 글자 이상)를 `extension/words/ko.json`, `en.json`으로 만듭니다. 이 두 파일은 같은 CC-BY-SA 4.0입니다.
 - UniGaze 모델은 MG-NC-RAI-2.0(비상업·책임 있는 AI) 라이선스입니다. 이 시제품은 개인·연구용입니다.

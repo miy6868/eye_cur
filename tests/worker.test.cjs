@@ -72,28 +72,23 @@ function harness(stored = {}) {
   };
 }
 
-test('tab switch preserves socket and calibration, rejects old responses', async () => {
+test('tab switch preserves socket and calibration; server frames go only to the new tab', async () => {
   const h = harness();
   await h.message({type: 'start', tabId: 1, token: 'test'});
   h.sockets[0].open();
   const a = h.current();
   await h.message({type: 'calibrated', context: a.context, model: {degree: 2}, layout: 'fixed'}, {tab: {id: 1}});
-  await h.message({type: 'choose', context: a.context, requestId: 1}, {tab: {id: 1}});
-  const oldId = h.sockets[0].messages.find(m => m.type === 'choose').requestId;
   await h.activate(2);
   const b = h.current();
   assert.equal(b.tabId, 2);
   assert.equal(b.calibration.model.degree, 2);
   assert.equal(h.sockets.length, 1);
   assert.equal(h.sockets[0].readyState, 1);
-  await h.sockets[0].receive({type: 'selection', requestId: oldId, id: 'e1'});
-  assert.equal(h.sent.filter(m => m.type === 'selection').length, 0);
-  await h.message({type: 'choose', context: b.context, requestId: 1}, {tab: {id: 2}});
-  const id = h.sockets[0].messages.filter(m => m.type === 'choose').at(-1).requestId;
-  assert.notEqual(id, oldId);
-  await h.sockets[0].receive({type: 'selection', requestId: id, id: 'e2'});
-  const reply = h.sent.filter(m => m.type === 'selection').at(-1);
-  assert.equal(reply.tabId, 2); assert.equal(reply.requestId, 1); assert.equal(reply.context, b.context);
+  await h.sockets[0].receive({type: 'frame', valid: true});
+  const frame = h.sent.filter(m => m.type === 'frame').at(-1);
+  assert.equal(frame.tabId, 2); assert.equal(frame.context, b.context);
+  // 옛 탭의 페이지 메시지는 무시한다
+  assert.equal(await h.message({type: 'calibrated', context: a.context, model: {degree: 9}, layout: 'fixed'}, {tab: {id: 1}}), undefined);
 });
 
 test('calibration survives ESC stop and worker restart; recalibrate and invalid layout forget it', async () => {

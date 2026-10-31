@@ -12,6 +12,7 @@ import onnxruntime as ort
 
 ROOT = Path(__file__).resolve().parents[1]
 from backend.camera import LatestCamera
+from backend.config import CONFIG
 from backend.gestures import EyeState, MouthState, mouth_ratio
 
 # UniGaze는 ImageNet 사진의 채널별 평균·표준편차(RGB 순서)로 정규화한 얼굴로 학습했다
@@ -21,18 +22,18 @@ IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 def model_path():
     # 기본은 숫자를 8비트로 줄인 모델: 이 노트북에서 2배 빠르다(104→57ms).
-    # 흔들림은 조금 커지지만 실제로 써 보니 크지 않았다. .env의 GAZE_INT8=0이면 원래 크기(fp32) 모델을 쓴다
-    name = "unigaze_b16.onnx" if os.getenv("GAZE_INT8", "1") == "0" else "unigaze_b16_int8.onnx"
+    # 흔들림은 조금 커지지만 실제로 써 보니 크지 않았다. config.toml의 gaze_int8 = false면 원래 크기(fp32) 모델을 쓴다
+    name = "unigaze_b16_int8.onnx" if CONFIG["gaze_int8"] else "unigaze_b16.onnx"
     return ROOT / "models" / name
 
 
 def thread_count():
-    """모델 하나를 몇 개의 CPU 스레드로 나눠 계산할지. .env의 CPU_THREADS가 비어 있으면 자동으로 정한다."""
+    """모델 하나를 몇 개의 CPU 스레드로 나눠 계산할지. config.toml의 cpu_threads가 0이면 자동으로 정한다."""
     # 자동: 논리 코어 수의 절반(보통 실제 코어 수). 남는 절반은 카메라·얼굴 점 찾기·브라우저가 쓴다.
     # 이 노트북(논리 코어 16개)에서 얼굴 점 찾기와 함께 재 보니 4개 57ms → 8개 41ms로 가장 빨랐고,
     # 12·16개는 서로 CPU를 다퉈서 오히려 느렸다. 그래서 최대 8개
     automatic = (os.cpu_count() or 4) // 2
-    return max(2, min(8, int(os.getenv("CPU_THREADS") or automatic)))
+    return max(2, min(8, CONFIG["cpu_threads"] or automatic))
 
 
 def load_model():
@@ -148,11 +149,11 @@ class Tracker:
         self.gaze_future = None
         self.gaze_blocked_until = 0
         self.camera_config = None
-        intrinsics = os.getenv("CAMERA_INTRINSICS")
+        intrinsics = CONFIG["camera_intrinsics"]
         if intrinsics:
             self.camera_config = json.loads(Path(intrinsics).read_text(encoding="utf-8-sig"))
         try:
-            self.cap = LatestCamera(int(os.getenv("CAMERA_INDEX", "0")))
+            self.cap = LatestCamera(CONFIG["camera_index"])
         except Exception:
             self.close()
             raise

@@ -7,8 +7,6 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root))
 os.environ.setdefault('MPLCONFIGDIR', str(root / '.cache/matplotlib'))
-from dotenv import load_dotenv
-load_dotenv(root / '.env', encoding='utf-8-sig')
 from backend.tracker import Tracker
 
 tracker = None

@@ -14,5 +14,4 @@ fi
 uv pip install --python .venv/bin/python torch==2.7.1 --index-url https://download.pytorch.org/whl/cpu
 uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python scripts/download_models.py
-[ -f .env ] || cp .env.example .env
-echo '설치 완료. ./start.sh를 실행하세요. (API 키는 선택: Jev를 켤 때만 .env에 입력)'
+echo '설치 완료. ./start.sh를 실행하세요. (설정은 config.toml)'

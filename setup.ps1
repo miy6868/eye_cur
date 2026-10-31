@@ -24,8 +24,7 @@ uv pip install --python .venv/Scripts/python.exe -r requirements.txt
 if ($LASTEXITCODE -ne 0) { throw '라이브러리 설치 실패' }
 & .venv/Scripts/python.exe scripts/download_models.py
 if ($LASTEXITCODE -ne 0) { throw '가중치 다운로드 실패' }
-if (-not (Test-Path '.env')) { Copy-Item .env.example .env }
 # DLL이 없으면 설치는 성공해도 시연 때 처음 실패하므로, 여기서 모델을 미리 불러 본다 (카메라는 열지 않음)
 & .venv/Scripts/python.exe scripts/check_cpu.py
 if ($LASTEXITCODE -ne 0) { throw '모델 로딩 점검 실패. "DLL load failed"가 보이면 https://aka.ms/vs/17/release/vc_redist.x64.exe 를 설치하고, Windows N/KN 에디션이면 미디어 기능 팩을 설치한 뒤 다시 실행하세요.' }
-Write-Host '설치 완료. ./start.ps1을 실행하세요. (API 키는 선택(USE_JEV): Jev를 켤 때만 .env에 TYPESAFE_API_KEY 입력)'
+Write-Host '설치 완료. ./start.ps1을 실행하세요. (설정은 config.toml)'
