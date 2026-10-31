@@ -1,11 +1,12 @@
 """Continuously drain the camera so slow CPU inference cannot build a frame backlog."""
-import os
 import sys
 import threading
 import time
 from pathlib import Path
 
 import cv2
+
+from backend.config import CONFIG
 
 MAX_CAMERAS = 6  # 0~5번까지만 찾아본다. 학교 PC·노트북에 이보다 많은 카메라는 거의 없다
 
@@ -51,7 +52,7 @@ def pick_camera(found, default, ask=input):
     if not found:
         return default  # 하나도 못 찾으면 원래 번호로 열어 보고, 실패하면 Tracker가 안내한다
     if len(found) == 1:
-        return found[0]  # 한 대뿐이면 .env 번호가 틀려도 그 카메라를 쓴다
+        return found[0]  # 한 대뿐이면 config.toml 번호가 틀려도 그 카메라를 쓴다
     if default not in found:
         default = found[0]
     print("\n카메라가 여러 대 있습니다:")
@@ -70,10 +71,10 @@ def pick_camera(found, default, ask=input):
 
 
 def choose_camera():
-    # 서버 시작 때 한 번 고르고, Tracker가 읽는 CAMERA_INDEX에 넣어 둔다
-    default = int(os.getenv("CAMERA_INDEX", "0"))
+    # 서버 시작 때 한 번 고르고, Tracker가 읽는 CONFIG["camera_index"]에 넣어 둔다(파일은 바꾸지 않는다)
+    default = CONFIG["camera_index"]
     index = pick_camera(find_cameras(), default)
-    os.environ["CAMERA_INDEX"] = str(index)
+    CONFIG["camera_index"] = index
     print(f"카메라 {index}번 사용: {camera_name(index)}")
 
 
@@ -84,7 +85,7 @@ class LatestCamera:
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         if not self.cap.isOpened():
             self.cap.release()
-            raise RuntimeError("웹캠을 열 수 없습니다. 카메라 권한과 CAMERA_INDEX를 확인하세요.")
+            raise RuntimeError("웹캠을 열 수 없습니다. 카메라 권한과 config.toml의 camera_index를 확인하세요.")
         self.condition = threading.Condition()
         self.stopping = threading.Event()
         self.latest = None

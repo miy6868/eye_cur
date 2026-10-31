@@ -1,8 +1,6 @@
 (() => {
   if (globalThis.__gazeInstalled) return;
   globalThis.__gazeInstalled = true;
-  // false: 서버(Jev API) 대신 직접 만든 NearestSelector로 대상을 고른다. API 키가 없어도 동작한다.
-  const USE_JEV = false;
   // 클릭 방식: 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 기존 양눈 감기 클릭
   const CLICK_MODE = 'mouth';
   // true: 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 고친다(클릭 보정). 효과를 아직 측정하지 않아 기본은 끔
@@ -43,8 +41,8 @@
   const CALIBRATION_METHOD = 'unigaze-points9';
   let currentContext;
   let running = false, host, shadow, model, calibration, smooth, clicker;
-  let selected = null, pending = null, requestNumber = 0, lastRequest = 0;
-  let lastFrame = 0, history = [], timer, layout, lastStatus = '';
+  let selected = null;
+  let lastFrame = 0, timer, layout, lastStatus = '';
   let ids = new WeakMap(), idNumber = 0;
   let frameIds = new Map(), frameItems = [], frameBusy = false; // iframe 속 후보 (askFrames)
   // 팝업의 '화면에 정보 표시'. 사이트를 방해하지 않도록 기본은 꺼짐.
@@ -78,8 +76,8 @@
     return ids.get(element);
   }
   function invalidate() {
-    selected = null; pending = null; history = []; resetFilter(); lockGaze = null;
-    requestNumber++; clicker?.reset();
+    selected = null; resetFilter(); lockGaze = null;
+    clicker?.reset();
     nearest.reset(); // 스크롤·탭 이동 뒤에는 머무름을 처음부터 다시 잰다
     if (shadow) { shadow.querySelector('#target').hidden = true; shadow.querySelector('#timer').hidden = true; }
   }
@@ -103,7 +101,7 @@
   function start(message = {}) {
     end(); currentContext = message.context; running = true; model = null; resetFilter(); clicker = CLICK_MODE === 'mouth' ? new MouthClick() : new Blink();
     ids = new WeakMap(); idNumber = 0; lastStatus = ''; lastFrame = performance.now();
-    lastRequest = 0; layout = geometry();
+    layout = geometry();
     const saved = message.calibration;
     // 같은 창 배치에서 지금 방식으로 만든 보정만 이어서 쓴다
     if (saved?.layout === layout && saved.model?.method === CALIBRATION_METHOD) model = saved.model;
@@ -190,10 +188,6 @@
       if (geometry() !== layout) { send({type: 'calibrationInvalid'}); start({context: currentContext}); return; }
       if (performance.now() - lastFrame > 500) {
         invalidate(); hideCursor();
-      }
-      if (pending && performance.now() - pending.sent > 1800) {
-        pending = null; requestNumber++;
-        if (!clicker.active) status('Jev 응답 지연 · 선택 보류');
       }
     }, 100);
   }
@@ -385,7 +379,7 @@
     Promise.all(frames.map(frame => send({type: 'frameRelay', frameId: frame.frameId,
       request: {type: 'frameCollect', x: x - frame.left, y: y - frame.top, radius}}).then(items => (Array.isArray(items) ? items : []).map(item => {
       const key = `${frame.frameId}:${item.id}`;
-      // Jev 서버는 e+숫자 id만 받으므로 이 페이지의 id 번호를 같이 쓴다
+      // 프레임마다 번호가 1부터라 겹치지 않게 이 페이지의 id 번호를 같이 쓴다
       if (!frameIds.has(key)) frameIds.set(key, `e${++idNumber}`);
       const rect = [item.rect[0] + frame.left, item.rect[1] + frame.top, item.rect[2], item.rect[3]];
       return {...item, id: frameIds.get(key), frameId: frame.frameId, frameItemId: item.id, iframe: frame.iframe, rect};
@@ -480,14 +474,8 @@
     else if (clicker.result === 'short') status('짧은 깜빡임 · 클릭하려면 0.6초 이상 감아 주세요.');
     if (!message.gaze) return;
     const point = predict(model, message.gaze);
-    if (point.some(v => !Number.isFinite(v))) {
-      pending = null; requestNumber++; history = []; resetFilter();
-      hideCursor(); return;
-    }
-    if (point.some(v => v < -.1 || v > 1.1)) {
-      pending = null; requestNumber++; history = []; resetFilter();
-      hideCursor(); return;
-    }
+    // 계산 실패나 화면 밖 멀리(10% 넘게)는 버린다
+    if (point.some(v => !Number.isFinite(v) || v < -.1 || v > 1.1)) { resetFilter(); hideCursor(); return; }
     const xy = [point[0] * innerWidth, point[1] * innerHeight];
     // 필터를 끈 상태면 원본 점을 그대로 쓴다. 대상 선택에는 이 필터 결과(smooth)를 쓴다
     smooth = filter ? filter.update(xy) : xy;
@@ -497,21 +485,8 @@
     trail = trail.filter(p => now - p.time < GRAPH_MS);
     showJitter(now);
     drawGraph(now);
-    history.push({x: Math.round(smooth[0]), y: Math.round(smooth[1]), time: now});
-    history = history.filter(p => now - p.time < 1200).slice(-8);
-    if (mode === 'scroll') { aimScroll(smooth, now); return; }
-    if (!USE_JEV || mode) { chooseNearest(now); return; }
-    const stable = history.slice(-3);
-    if (pending || now - lastRequest < 400 || stable.length < 3 || now - stable[0].time < 200) return;
-    if (stable.some(p => Math.hypot(p.x - smooth[0], p.y - smooth[1]) > 65)) return;
-    const items = candidates(...smooth);
-    if (!items.length) { status(selected ? `마지막 선택 유지: ${selected.name || selected.role}` : '시선 주변에 클릭 가능한 요소가 없습니다.'); return; }
-    lastRequest = now;
-    pending = {requestId: ++requestNumber, sent: now, items, gaze: [...smooth]};
-    send({type: 'choose', requestId: pending.requestId, gaze: smooth.map(Math.round),
-      history: history.map(p => ({x: p.x, y: p.y, ageMs: Math.round(now - p.time)})),
-      candidates: items.map(({id, name, role, rect, distance}) => ({id, name, role, rect, distance}))});
-    if (!selected) status('Jev가 클릭 대상을 고르는 중…');
+    if (mode === 'scroll') aimScroll(smooth, now);
+    else chooseNearest(now);
   }
   function mouthStatus(time) {
     const elapsed = time - clicker.started;
@@ -621,8 +596,8 @@
     if (mode === 'menu') {
       const sheet = make('div', 'sheet menu');
       sheet.append(
-        make('button', '', '← 뒤로', () => { setMode(null); window.history.back(); }),
-        make('button', '', '앞으로 →', () => { setMode(null); window.history.forward(); }),
+        make('button', '', '← 뒤로', () => { setMode(null); history.back(); }),
+        make('button', '', '앞으로 →', () => { setMode(null); history.forward(); }),
         make('button', '', '⟳ 새로고침', () => { setMode(null); location.reload(); }),
         make('button', '', '↕ 스크롤', () => setMode('scroll')),
         make('button', '', '▦ 탭', openTabs),
@@ -779,17 +754,6 @@
     if (!running) return;
     if (message.type === 'status') status(message.message);
     if (message.type === 'frame') frame(message);
-    if (message.type === 'selection' && pending?.requestId === message.requestId) {
-      const request = pending; pending = null;
-      if (clicker.active || !document.hasFocus() || performance.now() - lastFrame > 400) return;
-      const item = request.items.find(c => c.id === message.id);
-      if (!item || !smooth || Math.hypot(...smooth.map((v, k) => v - request.gaze[k])) > 80 ||
-          !unchanged(item)) {
-        status(selected ? `마지막 선택 유지: ${selected.name || selected.role}` : message.error || 'Jev 선택 보류 · 대상을 계속 바라보세요.'); return;
-      }
-      selected = {...item}; showTarget(selected);
-      status(`선택: ${item.name || item.role} · ${CLICK_HINT}.`);
-    }
   });
   // 단축키는 정보 표시를 켰을 때만: 꺼 두면 사이트의 ESC(창 닫기)·F 키를 가로채지 않는다
   document.addEventListener('keydown', event => { if (host && showInfo && event.key === 'Escape') { event.preventDefault(); stop('ESC로 중지됨'); } }, true);

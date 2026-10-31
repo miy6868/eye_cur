@@ -1,0 +1,13 @@
+# 서버 설정. 바꾼 뒤에는 서버를 다시 시작한다
+
+# 기본 카메라 번호. 카메라가 여러 대면 서버를 켤 때 번호를 묻고, Enter를 누르면 이 번호를 쓴다
+camera_index = 0
+
+# 시선 모델에 쓸 CPU 스레드 수. 0이면 자동(논리 코어 수의 절반, 2~8개)
+cpu_threads = 0
+
+# true: 8비트로 줄인 UniGaze 모델(약 2배 빠름, 조금 더 흔들림). false면 원래 크기(fp32) 모델
+gaze_int8 = true
+
+# 측정한 카메라 내부 파라미터 JSON 파일 경로(camera_matrix, dist_coefficients). 비우면 추정값을 쓴다
+camera_intrinsics = ""

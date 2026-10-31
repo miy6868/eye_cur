@@ -223,7 +223,7 @@
     const variance = points.reduce((sum, p) => sum + (p[0] - mean[0]) ** 2 + (p[1] - mean[1]) ** 2, 0) / points.length;
     return Math.sqrt(variance);
   }
-  // Jev 대신 직접 만든 대상 선택: 시선에서 가장 가까운 요소를 고른다.
+  // 대상 선택: 시선에서 가장 가까운 요소를 고른다.
   class NearestSelector {
     constructor() { this.reset(); }
     reset() {

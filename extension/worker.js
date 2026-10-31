@@ -5,8 +5,6 @@ let context = null;
 let savedCalibration = null;
 let status = '중지됨';
 let generation = 0;
-let wireId = 0;
-const requests = new Map();
 let pageRetryTimer = null, pageRetryAttempt = 0;
 let socketRetryTimer = null, socketRetryAttempt = 0;
 let pairingToken = null;
@@ -38,9 +36,8 @@ function calibrating() {
 
 async function detach(reason = '다른 탭에서 계속합니다.') {
   const previous = activeTab, previousContext = context;
-  activeTab = null; context = null; requests.clear();
+  activeTab = null; context = null;
   const epoch = ++generation;
-  if (connection?.readyState === WebSocket.OPEN) connection.send(JSON.stringify({type: 'cancel'}));
   if (previous !== null) await chrome.tabs.sendMessage(previous, {type: 'suspend', context: previousContext, message: reason}).catch(() => {});
   return epoch;
 }
@@ -119,11 +116,6 @@ function connect(token) {
     }
     if (message.type === 'frame') socketRetryAttempt = 0;
     if (message.type === 'status') status = message.message;
-    if (message.type === 'selection') {
-      const route = requests.get(message.requestId); requests.delete(message.requestId);
-      if (!route || route.context !== context || route.tabId !== activeTab) return;
-      message = {...message, requestId: route.requestId};
-    }
     if (activeTab === null) return;
     const destination = activeTab, destinationContext = context;
     await chrome.tabs.sendMessage(destination, {...message, context: destinationContext}).catch(() => {
@@ -212,12 +204,6 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message.type === 'switchTab' && Number.isInteger(message.tabId)) {
     chrome.tabs.update(message.tabId, {active: true}).then(() => reply(true), () => reply(false));
     return true;
-  }
-  if (message.type === 'choose' && connection?.readyState === WebSocket.OPEN) {
-    const id = ++wireId;
-    requests.clear();
-    requests.set(id, {tabId: activeTab, context, requestId: message.requestId});
-    connection.send(JSON.stringify({...message, requestId: id})); reply({ok: true}); return;
   }
   if (message.type === 'calibrationLog' && connection?.readyState === WebSocket.OPEN) {
     connection.send(JSON.stringify(message)); return;
