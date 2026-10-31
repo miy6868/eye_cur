@@ -272,20 +272,9 @@
       return current + DRIFT_GAIN * (center[k] - gaze[k]) / screen[k];
     });
   }
-  // 화면 여백: 카메라(화면 위)에서 먼 가장자리일수록 시선 인식이 나빠서 Chrome 창을 그만큼 줄여 띄운다
-  // 웹페이지를 고치지 않고 창 크기만 바꾸므로 어떤 사이트에서도 똑같이 동작한다
-  const MARGIN_SIDE = .06;   // 왼쪽·오른쪽: 화면 너비의 6%
-  const MARGIN_BOTTOM = .15; // 아래: 카메라에서 가장 멀어 화면 높이의 15%로 넓게
-  // 위쪽은 카메라와 가까워 여백을 두지 않는다
-  // area: 작업 표시줄을 뺀 화면 {left, top, width, height}, 반환값: chrome.windows.update에 넣을 창 위치·크기
-  function windowBounds(area) {
-    const side = Math.round(area.width * MARGIN_SIDE);
-    const bottom = Math.round(area.height * MARGIN_BOTTOM);
-    return {left: area.left + side, top: area.top, width: area.width - side * 2, height: area.height - bottom};
-  }
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, windowBounds};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();
