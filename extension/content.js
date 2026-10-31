@@ -3,7 +3,7 @@
   globalThis.__gazeInstalled = true;
   // true: 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 고친다(클릭 보정). 효과를 아직 측정하지 않아 기본은 끔
   const CLICK_DRIFT = false;
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, configure} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = globalThis.GazeCore;
   // 조정 값(config.toml → 서버 → settings 메시지). 객체를 잡아 두면 값이 바뀌어도 새 값을 본다
   const CLICK = SETTINGS.click, CAL = SETTINGS.calibration;
   // 클릭 방식: config.toml [click] mode. 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 양눈 감기 클릭
@@ -758,7 +758,10 @@
     wordLists[lang] ??= fetch(chrome.runtime.getURL(`words/${lang}.json`)).then(response => response.json())
       .then(list => list.map(word => ({word, key: lang === 'ko' ? globalThis.Hangul.disassemble(word) : word})))
       .catch(() => []);
-    return wordLists[lang];
+    // 내 단어(my_words.txt)를 앞에 붙인다. 한글이 들어 있으면 한글 키보드, 아니면 영어 키보드에서 추천한다
+    const mine = MY_WORDS.filter(word => /[가-힣ㄱ-ㅣ]/.test(word) === (lang === 'ko'))
+      .map(word => ({word, key: lang === 'ko' ? globalThis.Hangul.disassemble(word) : word.toLowerCase()}));
+    return wordLists[lang].then(list => [...mine, ...list]);
   }
   function refreshWords() {
     const shown = kb.shown, lang = kb.lang;

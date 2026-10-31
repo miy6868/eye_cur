@@ -12,12 +12,17 @@
   // 바로가기 화면의 사이트 [[이름, 주소]]: config.toml [shortcuts]. 버튼이 작아지지 않게 최대 9개(3개씩 세 줄)
   const SHORTCUTS = [];
   const MAX_SHORTCUTS = 9;
+  // 사용자가 넣은 추천 단어(my_words.txt). 빈도 목록보다 먼저 추천한다
+  const MY_WORDS = [];
   // 서버가 보낸 값 중 기본값과 같은 종류(숫자·글자)인 것만 받는다. 객체는 그대로 두고 값만 바꿔서 다른 곳이 잡아 둔 참조도 새 값을 본다
   function configure(values) {
     // 바로가기는 http/https 주소만 받는다(javascript: 같은 주소로 페이지에서 코드가 돌지 않게)
     if (values?.shortcuts && typeof values.shortcuts === 'object') {
       SHORTCUTS.splice(0, SHORTCUTS.length, ...Object.entries(values.shortcuts)
         .filter(([name, url]) => name && typeof url === 'string' && /^https?:\/\//i.test(url)).slice(0, MAX_SHORTCUTS));
+    }
+    if (Array.isArray(values?.words)) {
+      MY_WORDS.splice(0, MY_WORDS.length, ...values.words.filter(word => typeof word === 'string' && word.trim()).map(word => word.trim()));
     }
     for (const [section, keys] of Object.entries(SETTINGS)) {
       for (const key of Object.keys(keys)) {
@@ -309,9 +314,11 @@
   // 다만 친 글자 그대로 시작하는 단어('학교')를 앞에 둔다. text = 입력칸에 보이는 조합 중인 글자
   function suggest(entries, key, text, count = 5) {
     if (!key) return [];
-    const same = [], other = [];
+    const same = [], other = [], seen = new Set();
     for (const entry of entries) {
-      if (entry.key === key || !entry.key.startsWith(key)) continue;
+      // 내 단어와 빈도 목록에 같은 단어가 있으면 한 번만
+      if (entry.key === key || !entry.key.startsWith(key) || seen.has(entry.word)) continue;
+      seen.add(entry.word);
       (entry.word.startsWith(text) ? same : other).push(entry.word);
       if (same.length === count) break;
     }
@@ -334,6 +341,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, configure};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, configure} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -303,6 +303,15 @@ test('shortcuts keep config order, accept only http(s) and at most 9', () => {
   assert.deepEqual(SHORTCUTS.map(([name]) => name), ['네이버', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
   configure({shortcuts: {}});
   assert.equal(SHORTCUTS.length, 0);
+});
+
+test('my words from the server replace the old list and come first without duplicates', () => {
+  configure({words: ['학교 축제', ' 학교 ', '', 3]});
+  assert.deepEqual(MY_WORDS, ['학교 축제', '학교']);
+  const entries = [...MY_WORDS, '학교', '학생'].map(word => ({word, key: word}));
+  assert.deepEqual(suggest(entries, '학', '학'), ['학교 축제', '학교', '학생']);
+  configure({words: []});
+  assert.equal(MY_WORDS.length, 0);
 });
 
 test('mouthRing: one turn is 1.25 x menu time, so grey/click/menu parts are all visible', () => {

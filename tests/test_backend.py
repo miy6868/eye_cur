@@ -38,6 +38,7 @@ class SocketTests(unittest.TestCase):
                 self.assertEqual(settings['type'], 'settings')
                 self.assertEqual(settings['click']['mode'], 'mouth')
                 self.assertTrue(all(url.startswith('http') for url in settings['shortcuts'].values()))
+                self.assertIsInstance(settings['words'], list)
                 self.assertEqual(ws.receive_json()['type'], 'status')
                 self.assertEqual(ws.receive_json()['type'], 'status')
                 self.assertEqual(ws.receive_json()['type'], 'frame')
@@ -46,6 +47,18 @@ class SocketTests(unittest.TestCase):
                     while True: ws.receive_json()
         self.assertTrue(closed)
         self.assertFalse(server.active)
+
+    def test_my_words_skip_comments_blanks_and_duplicates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'my_words.txt'
+            path.write_text('\ufeff# 설명\n학교 축제\n\n  GitHub  # 영어\n학교 축제\n', encoding='utf-8')
+            with patch.object(server, 'WORDS_FILE', path):
+                self.assertEqual(server.my_words(), ['학교 축제', 'GitHub'])
+            path.write_bytes('학교'.encode('cp949'))  # 메모장 ANSI 저장
+            with patch.object(server, 'WORDS_FILE', path):
+                self.assertEqual(server.my_words(), [])
+            with patch.object(server, 'WORDS_FILE', Path(directory) / 'none.txt'):
+                self.assertEqual(server.my_words(), [])
 
     def send_calibration_log(self, log_file, save):
         class FakeTracker:

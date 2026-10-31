@@ -47,6 +47,7 @@
 | `extension/frame.js` | 맨 위가 아닌 프레임에서만 동작. 워커가 중계한 `frameCollect`/`frameClick`에만 답한다 |
 | `extension/vendor/es-hangul.js` | es-hangul의 `assemble`·`disassemble`만 묶은 파일(전역 `Hangul`). 다시 만드는 명령은 README 출처 |
 | `extension/words/ko.json`, `en.json` | 추천 단어(빈도순). `scripts/build_words.py`로 생성, CC-BY-SA 4.0 |
+| `my_words.txt` | 사용자가 직접 넣는 추천 단어(한 줄에 하나, `#` 뒤 무시). 서버가 `settings.words`로 보내고 content.js가 빈도 목록 앞에 붙인다. 한글이 있으면 한글 키보드용. ANSI로 저장돼 못 읽으면 연결은 유지하고 빈 목록 |
 | `extension/popup.html`, `popup.js` | 토큰 입력, 시작/다시 보정/중지, 상태, 스위치 두 개(정보 표시, 키보드 자동 표시) |
 | `demo.html` | 시연·테스트 페이지(`/demo`) |
 | `vendor/unigaze.py` | UniGaze-B를 torch만으로 다시 쓴 것. 설치 때 ONNX 변환에만 쓴다 |
@@ -64,7 +65,7 @@
 ## 메시지
 서버 ↔ 워커 (`/ws`, JSON)
 - 워커 → 서버: 처음 `{type:'auth', token}` (5초 안). 이후 `calibrationLog`, `stop`.
-- 서버 → 워커: `settings {click, select, calibration, scroll, keyboard, shortcuts}`(인증 직후 한 번), `status {message}`, `frame {...}`, `error {error, recoverable?}`. 토큰·origin이 틀리면 close 1008.
+- 서버 → 워커: `settings {click, select, calibration, scroll, keyboard, shortcuts, words}`(인증 직후 한 번. `words`는 `my_words.txt`를 연결마다 다시 읽은 단어 배열), `status {message}`, `frame {...}`, `error {error, recoverable?}`. 토큰·origin이 틀리면 close 1008.
 - `frame` 필드: `valid, time(ms, 촬영 시각), eyesReady, closing, closed, openness, mouthOpen, mar, ear`. 시선이 나온 프레임에만 `gaze [yaw, pitch], gazeTime, captureAgeMs, inferenceMs, headRoll, headDistance(mm), headPitch, headYaw, iris`. 실패 시 `error`/`gazeError`.
 
 워커 ↔ 페이지 (`chrome.tabs.sendMessage` / `runtime.sendMessage`, 모두 `context`(UUID)로 오래된 페이지 메시지를 거른다)
@@ -77,7 +78,7 @@
 - 저장된 보정은 `layout`(content.js `geometry()` = 창 크기·위치·devicePixelRatio·확대)과 `model.method`(`CALIBRATION_METHOD`)가 같을 때만 다시 쓴다. 시선 모델이나 보정 방식을 바꾸면 `CALIBRATION_METHOD` 문자열을 바꿔 예전 보정을 버리게 한다.
 
 ## 조정 값 위치
-사용자가 바꿀 값은 모두 `config.toml`에 있다(뜻은 그 파일 주석). `[mouth]`·`[eyes]`는 `backend/gestures.py`가 읽고, `[click]`·`[select]`·`[calibration]`·`[scroll]`·`[keyboard]`·`[shortcuts]`는 서버가 `settings` 메시지로 확장에 보내 `core.js` `configure()`가 덮어쓴다. `core.js` `SETTINGS`의 숫자는 서버 값이 오기 전·테스트용 기본값이라 config.toml과 달라도 된다. 값을 하나 더 늘릴 때는 config.toml, `SETTINGS`, 쓰는 곳을 같이 고친다. 바로가기는 `SETTINGS`가 아니라 `SHORTCUTS` 배열(http/https만, 최대 9개).
+사용자가 바꿀 값은 모두 `config.toml`에 있다(뜻은 그 파일 주석). `[mouth]`·`[eyes]`는 `backend/gestures.py`가 읽고, `[click]`·`[select]`·`[calibration]`·`[scroll]`·`[keyboard]`·`[shortcuts]`는 서버가 `settings` 메시지로 확장에 보내 `core.js` `configure()`가 덮어쓴다. `core.js` `SETTINGS`의 숫자는 서버 값이 오기 전·테스트용 기본값이라 config.toml과 달라도 된다. 값을 하나 더 늘릴 때는 config.toml, `SETTINGS`, 쓰는 곳을 같이 고친다. 바로가기는 `SETTINGS`가 아니라 `SHORTCUTS` 배열(http/https만, 최대 9개), 내 추천 단어는 `MY_WORDS` 배열(`my_words.txt`).
 
 config.toml 밖에 있는 값:
 | 값 | 위치 |

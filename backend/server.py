@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 runtime_path = ROOT / "runtime.json"
 # 보정 분석용 기록. 한 줄에 보정 한 번 (시선 값·점 위치·검증 결과, 카메라 이미지는 없음)
 LOG_FILE = ROOT / "logs" / "pursuit.jsonl"
+# 사용자가 직접 넣는 키보드 추천 단어. 한 줄에 하나, #부터는 설명
+WORDS_FILE = ROOT / "my_words.txt"
 if runtime_path.exists():
     TOKEN = json.loads(runtime_path.read_text())["token"]
 else:
@@ -24,6 +26,20 @@ else:
 
 app = FastAPI()
 active = False
+
+
+def my_words():
+    # 연결할 때마다 다시 읽는다: 파일을 고친 뒤 팝업에서 중지 → 시작만 하면 된다
+    if not WORDS_FILE.exists():
+        return []
+    try:
+        text = WORDS_FILE.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        # 메모장에서 ANSI로 저장하면 못 읽는다. 연결은 끊지 않고 내 단어만 뺀다
+        print(f"{WORDS_FILE.name}을 읽지 못했습니다. UTF-8로 저장하세요.", flush=True)
+        return []
+    lines = (line.split("#")[0].strip() for line in text.splitlines())
+    return list(dict.fromkeys(line for line in lines if line))  # 빈 줄·중복 제거, 순서 유지
 
 
 @app.get("/health")
@@ -85,7 +101,7 @@ async def socket(ws: WebSocket):
 
     try:
         # 확장이 쓰는 조정 값(config.toml). 워커가 기억했다가 새로 붙는 페이지에도 넘긴다
-        await send({"type": "settings", **{name: CONFIG.get(name, {}) for name in ("click", "select", "calibration", "scroll", "keyboard", "shortcuts")}})
+        await send({"type": "settings", **{name: CONFIG.get(name, {}) for name in ("click", "select", "calibration", "scroll", "keyboard", "shortcuts")}, "words": my_words()})
         await send({"type": "status", "message": "CPU 모델과 카메라 준비 중…"})
         from backend.tracker import Tracker
         tracker = await loop.run_in_executor(executor, Tracker)
