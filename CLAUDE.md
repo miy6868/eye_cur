@@ -91,6 +91,7 @@
 | 선택 머무름·끈적임 | `extension/core.js` `DWELL_MS`/`SWITCH_MARGIN_PX` | 300ms / 30px |
 | 보정 점·순서 | `extension/core.js` `CALIBRATION_POINTS`/`CALIBRATION_ORDER` | 3×3(10/50/90%), ㄹ자 왕복 18번 |
 | 보정 시간 | `extension/content.js` `POINT_SETTLE_MS`/`POINT_COLLECT_MS`/`POINT_MIN_RECORDS`/`POINT_TIMEOUT_MS` | 800 / 800ms / 3개 / 2100ms |
+| 보정 첫 점 대기 | `extension/content.js` `CALIBRATION_LEAD_MS` (켜자마자 축소 애니메이션 0.8초 뒤 이만큼 더 기다린 다음, 첫 시선 결과에서 첫 점 시계 시작) | 500ms |
 | 보정 통과 기준 | `extension/content.js` `judge()`의 `rms > .15` | 화면 비율 0.15 |
 | 후보 탐색 반경 | `extension/content.js` `candidates()` | 100~240px, 모델 오차에 비례 |
 | 떨림 필터 목록·기본 | `extension/content.js` `filterChoices`, `filterIndex` | 기본 응시 고정(120px, 3, 30) |
