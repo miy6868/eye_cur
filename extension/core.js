@@ -9,9 +9,9 @@
     scroll: {band: .25, min_px: 150, max_px: 1200},
     keyboard: {height: 75},
   };
-  // 메뉴의 바로가기 [[이름, 주소]]: config.toml [shortcuts]. 버튼이 작아지지 않게 최대 6개(3개씩 두 줄)
+  // 바로가기 화면의 사이트 [[이름, 주소]]: config.toml [shortcuts]. 버튼이 작아지지 않게 최대 9개(3개씩 세 줄)
   const SHORTCUTS = [];
-  const MAX_SHORTCUTS = 6;
+  const MAX_SHORTCUTS = 9;
   // 서버가 보낸 값 중 기본값과 같은 종류(숫자·글자)인 것만 받는다. 객체는 그대로 두고 값만 바꿔서 다른 곳이 잡아 둔 참조도 새 값을 본다
   function configure(values) {
     // 바로가기는 http/https 주소만 받는다(javascript: 같은 주소로 페이지에서 코드가 돌지 않게)

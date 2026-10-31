@@ -298,9 +298,9 @@ test('configure takes config.toml values of the right type and click timing foll
   assert.equal(mouthPhase(350), 'wait');
 });
 
-test('shortcuts keep config order, accept only http(s) and at most 6', () => {
-  configure({shortcuts: {'네이버': 'https://www.naver.com', '나쁜': 'javascript:alert(1)', '숫자': 3, a: 'http://a', b: 'http://b', c: 'http://c', d: 'http://d', e: 'http://e'}});
-  assert.deepEqual(SHORTCUTS.map(([name]) => name), ['네이버', 'a', 'b', 'c', 'd', 'e']);
+test('shortcuts keep config order, accept only http(s) and at most 9', () => {
+  configure({shortcuts: {'네이버': 'https://www.naver.com', '나쁜': 'javascript:alert(1)', '숫자': 3, a: 'http://a', b: 'http://b', c: 'http://c', d: 'http://d', e: 'http://e', f: 'http://f', g: 'http://g', h: 'http://h', i: 'http://i'}});
+  assert.deepEqual(SHORTCUTS.map(([name]) => name), ['네이버', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
   configure({shortcuts: {}});
   assert.equal(SHORTCUTS.length, 0);
 });

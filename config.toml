@@ -50,7 +50,7 @@ band = 0.25    # 화면 위·아래 이 비율 안을 보면 스크롤
 min_px = 150   # 띠 안쪽 끝의 속도(초당 px)
 max_px = 1200  # 화면 끝·밖의 속도
 
-[shortcuts]  # 메뉴의 바로가기 버튼. "이름" = "주소" (http/https만, 위에서부터 최대 6개, 3개씩 한 줄)
+[shortcuts]  # 메뉴 → 바로가기 화면의 사이트. "이름" = "주소" (http/https만, 위에서부터 최대 9개, 3개씩 한 줄)
 "네이버" = "https://www.naver.com"
 "유튜브" = "https://www.youtube.com"
 "구글" = "https://www.google.com"

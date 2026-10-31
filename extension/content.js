@@ -46,7 +46,7 @@
   // 켜야 왼쪽 아래 정보 상자가 보이고 단축키(F 필터, ESC 중지)가 동작한다
   let showInfo = false;
   let autoKeyboard = true; // 팝업의 '입력칸을 누르면 키보드 표시'
-  // 메뉴(입을 2초 넘게 벌렸다 다물기)에서 들어가는 화면: null | 'menu' | 'scroll' | 'tabs' | 'keyboard'
+  // 메뉴(입을 2초 넘게 벌렸다 다물기)에서 들어가는 화면: null | 'menu' | 'scroll' | 'tabs' | 'keyboard' | 'shortcuts'
   let mode = null;
   let scrollExit = null, scrollVelocity = 0, scrollBox = null, scrollAimed = 0, scrollFrame = 0, scrollTime = 0;
   let tabList = [], tabPage = 0;
@@ -144,10 +144,12 @@
       #overlay{position:fixed;inset:0;font-family:system-ui;color:#fff}
       #overlay button{pointer-events:auto;font:700 4.4vh/1.15 system-ui;border-radius:2vh;background:#1f3350;border:3px solid #ffffff30;padding:1vh;overflow:hidden}
       .sheet{position:fixed;inset:0;background:#0b1220;display:grid;gap:2.5vh;padding:5vh 5vw;pointer-events:auto}
-      .menu{grid-template-columns:repeat(3,1fr)}
-      /* 닫기는 낮게(남는 자리를 바로가기에) 하고 살짝 붉게 해서 눈에 띄게 */
+      /* 메뉴·바로가기 화면: 3칸씩, 맨 아래 낮은 줄은 왼쪽 닫기 + 오른쪽 두 칸(바로가기 / 메뉴로) */
+      .menu{grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr}
+      .menu .bottom{grid-column:2/4}
+      /* 닫기는 살짝 붉게 해서 눈에 띄게 */
       #overlay .close{background:#4a1d28;border-color:#f8717173}
-      #overlay .shortcut{background:#173a4a;font-size:3.6vh}
+      #overlay .shortcut{background:#173a4a}
       .wide{grid-column:1/-1}
       .tabs{grid-template:repeat(2,1fr) .6fr/repeat(4,1fr)}
       .tabs .nav{grid-row:3}.tabs .middle{grid-column:2/4}
@@ -350,7 +352,7 @@
       const r = element.getBoundingClientRect(), rect = [r.x, r.y, r.width, r.height];
       return {id: identify(element), element, rect, name: element.textContent, role: 'button', overlay: true, distance: Math.round(GazeCore.distanceToRect(x, y, rect))};
     }).sort((a, b) => a.distance - b.distance);
-    if (mode === 'menu' || mode === 'tabs') return own.slice(0, 8);
+    if (mode === 'menu' || mode === 'tabs' || mode === 'shortcuts') return own.slice(0, 8);
     const radius = Math.max(100, Math.min(240, (model.error + .06) * Math.min(innerWidth, innerHeight) * 2));
     askFrames(x, y, radius);
     const local = GazeDOM.collect(x, y, radius, identify);
@@ -593,7 +595,7 @@
     if (next === 'scroll' && !scrollFrame) scrollFrame = requestAnimationFrame(scrollStep);
     render();
     status({menu: '메뉴 · 버튼을 바라보고 입을 벌렸다 다무세요', scroll: '스크롤 · 위·아래 띠를 보면 움직이고 가운데를 보면 멈춥니다 · 입을 벌렸다 다물면 끝',
-      tabs: '탭 고르기 · 갈 탭을 바라보고 입을 벌렸다 다무세요', keyboard: '키보드 · 키를 바라보고 입을 벌렸다 다무세요'}[next] || '메뉴를 닫았습니다');
+      tabs: '탭 고르기 · 갈 탭을 바라보고 입을 벌렸다 다무세요', shortcuts: '바로가기 · 갈 사이트를 바라보고 입을 벌렸다 다무세요', keyboard: '키보드 · 키를 바라보고 입을 벌렸다 다무세요'}[next] || '메뉴를 닫았습니다');
   }
   function render() {
     const overlay = shadow.querySelector('#overlay');
@@ -601,8 +603,7 @@
     overlay.hidden = !mode;
     if (mode === 'menu') {
       const sheet = make('div', 'sheet menu');
-      // 기본 버튼 두 줄 + 바로가기 줄(3개씩) + 낮은 닫기 줄
-      sheet.style.gridTemplateRows = `repeat(${2 + Math.ceil(SHORTCUTS.length / 3)}, 1fr) .45fr`;
+      sheet.style.gridTemplateRows = '1fr 1fr .6fr';
       sheet.append(
         make('button', '', '← 뒤로', () => { setMode(null); history.back(); }),
         make('button', '', '앞으로 →', () => { setMode(null); history.forward(); }),
@@ -610,8 +611,18 @@
         make('button', '', '↕ 스크롤', () => setMode('scroll')),
         make('button', '', '▦ 탭', openTabs),
         make('button', '', '⌨ 키보드', () => setMode('keyboard')),
-        ...SHORTCUTS.map(([name, url]) => make('button', 'shortcut', `↗ ${name}`, () => { setMode(null); location.href = url; })),
-        make('button', 'wide close', '✕ 닫기', () => setMode(null)));
+        // 바로가기가 하나도 없으면(config.toml [shortcuts]가 비면) 닫기가 줄 전체를 쓴다
+        make('button', SHORTCUTS.length ? 'close' : 'wide close', '✕ 닫기', () => setMode(null)),
+        ...SHORTCUTS.length ? [make('button', 'bottom shortcut', '↗ 바로가기', () => setMode('shortcuts'))] : []);
+      overlay.append(sheet);
+    }
+    if (mode === 'shortcuts') {
+      const sheet = make('div', 'sheet menu');
+      sheet.style.gridTemplateRows = `repeat(${Math.ceil(SHORTCUTS.length / 3)}, 1fr) .6fr`;
+      sheet.append(...SHORTCUTS.map(([name, url]) => make('button', 'shortcut', name, () => { setMode(null); location.href = url; })));
+      // 마지막 줄이 덜 찼으면 빈칸으로 채워 닫기 줄이 항상 맨 아래 왼쪽에 오게 한다
+      for (let i = SHORTCUTS.length; i % 3; i++) sheet.append(make('div'));
+      sheet.append(make('button', 'close', '✕ 닫기', () => setMode(null)), make('button', 'bottom', '← 메뉴로', () => setMode('menu')));
       overlay.append(sheet);
     }
     if (mode === 'scroll') {
