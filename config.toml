@@ -30,10 +30,10 @@ reopen = 0.62   # 감은 뒤 이보다 커지면 다시 뜬 것
 [click]
 mode = "mouth"           # "mouth" = 입을 벌렸다 다물어 클릭, "eyes" = 양눈을 감았다 떠서 클릭
 mouth_min_ms = 500       # 이보다 짧게 벌리면 무시(말하기 등)
-mouth_max_ms = 2000      # 이보다 오래 벌리면 클릭 대신 메뉴. 진행 고리에서 보라색이 시작되는 곳
+mouth_max_ms = 1100      # 이보다 오래 벌리면 클릭 대신 메뉴. 진행 고리에서 보라색이 시작되는 곳
 mouth_cooldown_ms = 800  # 클릭 직후 다시 클릭되지 않는 시간
 eyes_min_ms = 600        # 눈 감기 클릭: 이보다 짧은 깜빡임은 무시
-eyes_max_ms = 1200       # 이보다 오래 감으면 클릭 대신 메뉴
+eyes_max_ms = 2000       # 이보다 오래 감으면 클릭 대신 메뉴
 eyes_cooldown_ms = 800
 
 [select]
