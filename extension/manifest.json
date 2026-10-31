@@ -7,5 +7,6 @@
   "permissions": ["activeTab", "scripting", "storage", "power"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": {"service_worker": "worker.js"},
+  "content_scripts": [{"matches": ["http://*/*", "https://*/*"], "all_frames": true, "js": ["core.js", "dom.js", "frame.js"]}],
   "action": {"default_popup": "popup.html", "default_title": "Gaze + Jev"}
 }

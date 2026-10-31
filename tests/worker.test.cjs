@@ -28,9 +28,9 @@ function harness(stored = {}) {
     tabs: {
       get: async id => ({...tabs.get(id), active: id === selected}),
       query: async () => [{...tabs.get(selected), active: true}],
-      sendMessage: async (tabId, message) => {
+      sendMessage: async (tabId, message, options) => {
         if (failSend) { failSend = false; throw new Error('Could not establish connection. Receiving end does not exist.'); }
-        sent.push({tabId, ...message}); return {ok: true};
+        sent.push({tabId, ...message, ...options}); return {ok: true};
       },
       onActivated: event('activated'), onRemoved: event('removed'), onUpdated: event('updated'),
     },
@@ -251,4 +251,17 @@ test('starting without a saved calibration attaches even when the window has no 
 test('popup recalibrate while stopped explains what to do', async () => {
   const h = harness();
   assert.match((await h.message({type: 'recalibrate', tabId: 1})).error, /시작/);
+});
+
+test('frameRelay forwards only collect/click to the active tab frame, from the current page', async () => {
+  const h = harness(); await h.message({type: 'start', tabId: 1, token: 'test'}); h.sockets[0].open();
+  const {context} = h.current();
+  const reply = await h.message({type: 'frameRelay', context, frameId: 7, request: {type: 'frameClick', id: 'e1'}}, {tab: {id: 1}});
+  assert.deepEqual(reply, {ok: true});
+  const relayed = h.sent.at(-1);
+  assert.equal(relayed.tabId, 1); assert.equal(relayed.frameId, 7); assert.equal(relayed.type, 'frameClick');
+  const count = h.sent.length;
+  await h.message({type: 'frameRelay', context, frameId: 7, request: {type: 'start'}}, {tab: {id: 1}});
+  await h.message({type: 'frameRelay', context: 'old', frameId: 7, request: {type: 'frameClick'}}, {tab: {id: 1}});
+  assert.equal(h.sent.length, count);
 });

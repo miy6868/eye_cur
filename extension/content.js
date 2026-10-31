@@ -43,6 +43,7 @@
   let selected = null, pending = null, requestNumber = 0, lastRequest = 0;
   let lastFrame = 0, history = [], timer, layout, lastStatus = '';
   let ids = new WeakMap(), idNumber = 0;
+  let frameIds = new Map(), frameItems = [], frameBusy = false; // iframe 속 후보 (askFrames)
   // 팝업의 '화면에 정보 표시'. 사이트를 방해하지 않도록 기본은 꺼짐.
   // 켜야 왼쪽 아래 정보 상자가 보이고 단축키(F 필터, ESC 중지)가 동작한다
   let showInfo = false;
@@ -294,10 +295,51 @@
   }
   function candidates(x, y) {
     const radius = Math.max(100, Math.min(240, (model.error + .06) * Math.min(innerWidth, innerHeight) * 2));
-    return GazeDOM.collect(x, y, radius, element => {
+    askFrames(x, y, radius);
+    const local = GazeDOM.collect(x, y, radius, element => {
       if (!ids.has(element)) ids.set(element, `e${++idNumber}`);
       return ids.get(element);
     });
+    // iframe 후보는 한 박자 전에 받은 것이라, 거리는 지금 시선으로 다시 잰다
+    const inFrames = frameItems.map(item => ({...item, distance: Math.round(GazeCore.distanceToRect(x, y, item.rect))}))
+      .filter(item => item.distance <= radius);
+    return [...local, ...inFrames].sort((a, b) => a.distance - b.distance || a.rect[2] * a.rect[3] - b.rect[2] * b.rect[3]).slice(0, 8);
+  }
+  // 다른 주소의 iframe(네이버 지도 검색 결과 등) 속 요소는 여기서 볼 수 없어서, 워커를 거쳐 그 프레임의 frame.js에 묻는다.
+  // 답은 비동기로 오므로 frameItems에 담아 두고 다음 프레임에 쓴다. 좌표는 iframe 내용의 왼쪽 위만큼 옮겨 이 페이지 기준으로 바꾼다
+  // shortcut: iframe 속 iframe, CSS transform으로 돌리거나 키운 iframe은 좌표가 어긋난다. 그런 사이트가 나오면 고친다
+  function askFrames(x, y, radius) {
+    if (frameBusy) return;
+    const frames = [];
+    for (const iframe of document.querySelectorAll('iframe')) {
+      const r = iframe.getBoundingClientRect();
+      if (GazeCore.distanceToRect(x, y, [r.x, r.y, r.width, r.height]) > radius) continue;
+      let frameId;
+      try { frameId = chrome.runtime.getFrameId(iframe); } catch { continue; }
+      if (frameId < 0) continue;
+      const style = getComputedStyle(iframe);
+      frames.push({iframe, frameId, left: r.x + iframe.clientLeft + parseFloat(style.paddingLeft), top: r.y + iframe.clientTop + parseFloat(style.paddingTop)});
+    }
+    if (!frames.length) { frameItems = []; return; }
+    frameBusy = true;
+    const asked = currentContext;
+    Promise.all(frames.map(frame => send({type: 'frameRelay', frameId: frame.frameId,
+      request: {type: 'frameCollect', x: x - frame.left, y: y - frame.top, radius}}).then(items => (Array.isArray(items) ? items : []).map(item => {
+      const key = `${frame.frameId}:${item.id}`;
+      // Jev 서버는 e+숫자 id만 받으므로 이 페이지의 id 번호를 같이 쓴다
+      if (!frameIds.has(key)) frameIds.set(key, `e${++idNumber}`);
+      const rect = [item.rect[0] + frame.left, item.rect[1] + frame.top, item.rect[2], item.rect[3]];
+      return {...item, id: frameIds.get(key), frameId: frame.frameId, frameItemId: item.id, iframe: frame.iframe, rect};
+    })))).then(lists => {
+      frameBusy = false;
+      // 이 페이지의 다른 요소에 가려진 부분은 뺀다
+      if (running && asked === currentContext) frameItems = lists.flat().filter(item => GazeDOM.available(item.iframe, item.rect));
+    });
+  }
+  // 선택된 요소가 그대로인지. iframe 속 요소는 최근에 받은 목록에 같은 자리로 남아 있으면 그대로로 본다(클릭 직전에는 frame.js가 다시 확인)
+  function unchanged(item) {
+    if (item.frameId === undefined) return GazeDOM.unchanged(item);
+    return frameItems.some(other => other.id === item.id && other.rect.every((v, k) => Math.abs(v - item.rect[k]) <= 5));
   }
   function showTarget(item) {
     const target = shadow.querySelector('#target');
@@ -308,14 +350,14 @@
     target.hidden = false;
   }
   function click(item) {
-    if (!document.hasFocus() || document.hidden || !GazeDOM.unchanged(item)) {
+    if (!document.hasFocus() || document.hidden || !unchanged(item)) {
       invalidate(); status('대상이 바뀌어 클릭을 취소했습니다.'); return;
     }
-    const element = item.element;
     const gaze = lockGaze;
     invalidate();
-    element.focus({preventScroll: true}); element.click();
-    status('클릭 완료');
+    if (item.frameId === undefined) { GazeDOM.press(item.element, item.rect); status('클릭 완료'); }
+    else send({type: 'frameRelay', frameId: item.frameId, request: {type: 'frameClick', id: item.frameItemId}})
+      .then(ok => status(ok ? '클릭 완료' : '대상이 바뀌어 클릭을 취소했습니다.'));
     if (CLICK_DRIFT && gaze) {
       // 방금 클릭한 요소를 보고 있었으므로, 그만큼 예측이 어긋났다고 보고 오프셋을 고친다
       model.offset = correctDrift(model.offset, gaze, item.rect, [innerWidth, innerHeight]);
@@ -344,7 +386,7 @@
     if (calibration) { calibrate(message, now); return; }
     if (!model) return;
     showEyeSize(message.openness);
-    if (selected && !GazeDOM.unchanged(selected)) invalidate();
+    if (selected && !unchanged(selected)) invalidate();
     const wasActive = clicker.active;
     const clicked = clicker.update(message, selected);
     if (clicker.active && !wasActive) {
@@ -398,7 +440,7 @@
     pending = {requestId: ++requestNumber, sent: now, items, gaze: [...smooth]};
     send({type: 'choose', requestId: pending.requestId, gaze: smooth.map(Math.round),
       history: history.map(p => ({x: p.x, y: p.y, ageMs: Math.round(now - p.time)})),
-      candidates: items.map(({element, href, ...data}) => data)});
+      candidates: items.map(({id, name, role, rect, distance}) => ({id, name, role, rect, distance}))});
     if (!selected) status('Jev가 클릭 대상을 고르는 중…');
   }
   function mouthStatus(time) {
@@ -487,7 +529,7 @@
       if (clicker.active || !document.hasFocus() || performance.now() - lastFrame > 400) return;
       const item = request.items.find(c => c.id === message.id);
       if (!item || !smooth || Math.hypot(...smooth.map((v, k) => v - request.gaze[k])) > 80 ||
-          !GazeDOM.unchanged(item)) {
+          !unchanged(item)) {
         status(selected ? `마지막 선택 유지: ${selected.name || selected.role}` : message.error || 'Jev 선택 보류 · 대상을 계속 바라보세요.'); return;
       }
       selected = {...item}; showTarget(selected);
