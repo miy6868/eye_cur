@@ -35,6 +35,9 @@
   const POINT_COLLECT_MS = 800;
   const POINT_MIN_RECORDS = 3;    // 눈을 감아 표본이 이보다 적으면 조금 더 기다린다
   const POINT_TIMEOUT_MS = 2100;  // 그래도 이 시간이 지나면 다음 점으로: 18번 × 2.1초라도 40초를 넘지 않는다
+  // 보정을 켜면 첫 점이 (서버·모델 준비와 상관없이) 바로 한 번 작아지며 눈길을 끈다. 그 뒤 이만큼은 더 기다렸다가 첫 점 시계를 시작한다:
+  // 팝업을 보던 사용자가 화면을 찾아 첫 점으로 눈을 옮길 시간
+  const CALIBRATION_LEAD_MS = 500;
   // 저장된 보정이 어떤 시선 모델·방식으로 만들어졌는지 표시: 둘 중 하나라도 바뀌면 예전 보정은 이어 쓰지 않고 다시 보정한다
   // (GazeTR과 UniGaze는 같은 곳을 봐도 출력 각도가 달라서, 예전 보정 계수를 그대로 쓰면 엉뚱한 곳을 가리킨다)
   const CALIBRATION_METHOD = 'unigaze-points9';
@@ -108,7 +111,7 @@
     // 클릭 보정을 껐으면 예전에 저장된 오프셋도 쓰지 않는다
     if (model && !CLICK_DRIFT) delete model.offset;
     // step: 몇 번째 점인지(0~17), records: 지금 점에서 모은 기록, log: 서버에 남길 모든 기록
-    calibration = model ? null : {shownAt: null, step: 0, records: [], log: [],
+    calibration = model ? null : {shownAt: null, earliest: performance.now() + POINT_SETTLE_MS + CALIBRATION_LEAD_MS, step: 0, records: [], log: [],
       points: CALIBRATION_POINTS.map(target => ({target, medians: []}))};
     host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
@@ -214,6 +217,7 @@
     if (calibration.shownAt === null) {
       // 카메라가 늦게 켜져도 첫 점 시간이 먼저 흐르지 않도록 첫 시선 결과에서 시계를 시작한다
       if (!Array.isArray(frame.gaze)) return;
+      if (now < calibration.earliest) { status('곧 보정을 시작합니다 · 초록 점을 바라보세요'); return; }
       calibration.shownAt = now;
     }
     // record.time은 점이 나타난 뒤 촬영까지 걸린 시간. 눈이 아직 옮겨 가는 중인 앞부분은 버린다
