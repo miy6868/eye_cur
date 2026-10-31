@@ -769,10 +769,12 @@
     });
   }
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
-    // Always acknowledge receipt, including frames/status and obsolete contexts.
-    // Otherwise a message-port closure can be mistaken for a missing document.
-    if (message.type !== 'start' && message.type !== 'suspend') reply?.({ok: true});
-    if (message.type === 'start') { start(message); reply?.({ok: true}); return; }
+    // 오래된 context 메시지까지 항상 답한다(답이 없으면 워커가 페이지가 없어진 줄 안다).
+    // 처리한 뒤에 답한다: 워커는 이 답을 받아야 다음 frame을 보내므로, 처리가 느려도 프레임이 쌓이지 않는다
+    try { receive(message); } finally { reply?.({ok: true}); }
+  });
+  function receive(message) {
+    if (message.type === 'start') { start(message); return; }
     if (message.context !== currentContext) return;
     // 서버가 켜질 때 보내는 config.toml 값. 클릭 방식이 바뀌었으면 클릭 판정기도 바꾼다
     if (message.type === 'settings') {
@@ -780,12 +782,12 @@
       if (clicker && !clicker.active && usesMouth() !== clicker instanceof MouthClick) clicker = usesMouth() ? new MouthClick() : new Blink();
       return;
     }
-    if (message.type === 'suspend') { end(); reply?.({ok: true}); return; }
+    if (message.type === 'suspend') { end(); return; }
     if (message.type === 'stopped') { end(message.message); return; }
     if (!running) return;
     if (message.type === 'status') status(message.message);
     if (message.type === 'frame') frame(message);
-  });
+  }
   // 단축키는 정보 표시를 켰을 때만: 꺼 두면 사이트의 ESC(창 닫기)·F 키를 가로채지 않는다
   document.addEventListener('keydown', event => { if (host && showInfo && event.key === 'Escape') { event.preventDefault(); stop('ESC로 중지됨'); } }, true);
   document.addEventListener('keydown', event => {

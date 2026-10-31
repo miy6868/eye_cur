@@ -9,6 +9,7 @@ let pageRetryTimer = null, pageRetryAttempt = 0;
 let socketRetryTimer = null, socketRetryAttempt = 0;
 let pairingToken = null;
 let settings = null; // 서버가 켜질 때 보낸 config.toml 값. 새로 붙는 페이지에 start와 함께 넘긴다
+let latestFrame = null, frameSentAt = 0; // 페이지에 아직 못 보낸 가장 최근 frame, 보내고 답을 기다리기 시작한 시각(0 = 안 기다림)
 
 function retryPage() {
   if (!enabled || pageRetryTimer !== null) return;
@@ -97,6 +98,19 @@ async function followFocusedTab() {
   if (tab && enabled && tab.id !== activeTab) await attach(tab.id);
 }
 
+// 서버 메시지를 지금 탭의 맨 위 프레임(content.js가 있는 곳)에만 보낸다. 페이지가 처리를 마치고 답하면 끝난다
+async function forward(message) {
+  if (activeTab === null) return;
+  const destination = activeTab, destinationContext = context;
+  await chrome.tabs.sendMessage(destination, {...message, context: destinationContext}, {frameId: 0}).catch(() => {
+    if (activeTab === destination && context === destinationContext) {
+      const operation = detach('페이지 연결 복구 중…');
+      const expected = generation;
+      operation.then(() => { if (enabled && expected === generation) retryPage(); });
+    }
+  });
+}
+
 function connect(token) {
   const socket = new WebSocket('ws://127.0.0.1:8765/ws');
   connection = socket;
@@ -118,15 +132,17 @@ function connect(token) {
     if (message.type === 'frame') socketRetryAttempt = 0;
     if (message.type === 'status') status = message.message;
     if (message.type === 'settings') settings = message;
-    if (activeTab === null) return;
-    const destination = activeTab, destinationContext = context;
-    await chrome.tabs.sendMessage(destination, {...message, context: destinationContext}).catch(() => {
-      if (activeTab === destination && context === destinationContext) {
-        const operation = detach('페이지 연결 복구 중…');
-        const expected = generation;
-        operation.then(() => { if (enabled && expected === generation) retryPage(); });
-      }
-    });
+    if (message.type !== 'frame') { await forward(message); return; }
+    // 페이지가 프레임(초당 약 30개)을 처리하는 것보다 느리면(무거운 사이트) 메시지가 쌓여 몇 초 전 시선으로 움직였다.
+    // 그래서 앞 프레임을 페이지가 다 처리해 답할 때까지 기다리고, 그 사이에 온 것은 가장 최근 하나만 남긴다
+    latestFrame = message;
+    if (Date.now() - frameSentAt < 1000) return; // 1초 넘게 답이 없으면 막힌 것으로 보고 새로 보낸다
+    while (latestFrame) {
+      const next = latestFrame;
+      latestFrame = null; frameSentAt = Date.now();
+      await forward(next);
+    }
+    frameSentAt = 0;
   };
   socket.onclose = async event => {
     if (connection !== socket) return;

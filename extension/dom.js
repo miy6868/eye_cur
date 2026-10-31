@@ -51,6 +51,11 @@
       const element = canonical(raw);
       if (seen.has(element)) continue;
       seen.add(element);
+      // 먼저 바깥 상자로 먼 요소를 거른다: 글자 줄·가려짐 검사(regions·available)는 비싸서 요소가 수천 개인 페이지(유튜브 등)에서
+      // 프레임마다 다 하면 처리가 밀렸다. 링크 안의 제목·블록도 이 상자에 들어간다(Chrome에서 확인). 크기 0인 상자는 거르지 않는다
+      // shortcut: position:absolute인 자식은 이 상자 밖에 있을 수 있어 그 부분만 멀면 빠진다. 그런 사이트가 나오면 고친다
+      const box = element.getBoundingClientRect();
+      if (box.width && box.height && GazeCore.distanceToRect(x, y, rectArray(box)) > radius) continue;
       const rect = nearestRegion(element, x, y);
       if (!rect) continue;
       const distance = GazeCore.distanceToRect(x, y, rect);

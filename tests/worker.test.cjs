@@ -13,6 +13,7 @@ function harness(stored = {}) {
   let focused = true;
   let delayedInjection = null;
   let failSend = false, failInjection = false, nextTimer = 0;
+  let gate = null; // hold()로 막아 두면 페이지가 메시지를 아직 처리 중인 것처럼 답이 늦게 온다
   const timers = new Map();
   const tabs = new Map([1, 2, 3].map(id => [id, {id, windowId: 1, url: id === 3 ? 'chrome://settings' : `https://example${id}.com/`}]));
   class Socket {
@@ -32,7 +33,9 @@ function harness(stored = {}) {
       update: async (id, props) => { if (props.active) { selected = id; handlers.activated({tabId: id, windowId: 1}); } return tabs.get(id); },
       sendMessage: async (tabId, message, options) => {
         if (failSend) { failSend = false; throw new Error('Could not establish connection. Receiving end does not exist.'); }
-        sent.push({tabId, ...message, ...options}); return {ok: true};
+        sent.push({tabId, ...message, ...options});
+        if (gate) await gate;
+        return {ok: true};
       },
       onActivated: event('activated'), onRemoved: event('removed'), onUpdated: event('updated'),
     },
@@ -65,6 +68,7 @@ function harness(stored = {}) {
     delayNext: fn => { delayedInjection = fn; },
     failNextSend: () => { failSend = true; },
     failNextInjection: () => { failInjection = true; },
+    hold: () => { let open; gate = new Promise(resolve => { open = resolve; }); return () => { gate = null; open(); }; },
     retry: async () => { const batch = [...timers.values()]; timers.clear(); for (const fn of batch) fn(); await flush(); },
     timerCount: () => timers.size,
     keepAwake: () => keepAwake,
@@ -283,4 +287,17 @@ test('server settings are forwarded to the page and handed to pages attached lat
   await h.activate(2);
   assert.equal(h.current().tabId, 2);
   assert.equal(h.current().settings.click.mouth_min_ms, 400);
+});
+
+test('a slow page gets the newest frame instead of a backlog', async () => {
+  const h = harness(); await h.message({type: 'start', tabId: 1, token: 'test'}); h.sockets[0].open(); await h.flush();
+  const release = h.hold();
+  for (const n of [1, 2, 3]) h.sockets[0].receive({type: 'frame', n});
+  await h.flush();
+  // 1번을 처리하는 동안 온 2·3번 중 최신(3번)만 보낸다. 서버 메시지는 content.js가 있는 맨 위 프레임에만 간다
+  assert.deepEqual(h.sent.filter(m => m.type === 'frame').map(m => m.n), [1]);
+  release(); await h.flush();
+  assert.deepEqual(h.sent.filter(m => m.type === 'frame').map(m => [m.n, m.frameId]), [[1, 0], [3, 0]]);
+  await h.sockets[0].receive({type: 'frame', n: 4});
+  assert.equal(h.sent.at(-1).n, 4);
 });
