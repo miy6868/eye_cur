@@ -64,5 +64,17 @@
     }
     return items.sort((a, b) => a.distance - b.distance || a.rect[2] * a.rect[3] - b.rect[2] * b.rect[3]).slice(0, 8);
   }
-  globalThis.GazeDOM = {collect, unchanged, available, regions};
+  // 실제 마우스 클릭과 같은 순서로 이벤트를 보낸다: click만 듣지 않고 mousedown/pointerdown에 반응하는 메뉴·버튼이 있다
+  function press(element, rect) {
+    const init = {bubbles: true, cancelable: true, composed: true, view: window, button: 0,
+      clientX: rect[0] + rect[2] / 2, clientY: rect[1] + rect[3] / 2};
+    const pointer = {...init, pointerId: 1, pointerType: 'mouse', isPrimary: true};
+    element.dispatchEvent(new PointerEvent('pointerdown', {...pointer, buttons: 1}));
+    element.dispatchEvent(new MouseEvent('mousedown', {...init, buttons: 1}));
+    element.focus({preventScroll: true});
+    element.dispatchEvent(new PointerEvent('pointerup', pointer));
+    element.dispatchEvent(new MouseEvent('mouseup', init));
+    element.click();
+  }
+  globalThis.GazeDOM = {collect, unchanged, available, regions, press};
 })();

@@ -197,6 +197,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     forgetCalibration(); attach(activeTab).then(() => reply({ok: true})); return true;
   }
   if (message.type === 'calibrationInvalid') { forgetCalibration(); return; }
+  // 페이지가 iframe 속 frame.js에 후보·클릭을 부탁한다. content script끼리는 직접 못 보내서 워커가 frameId로 전달한다
+  if (message.type === 'frameRelay' && ['frameCollect', 'frameClick'].includes(message.request?.type)) {
+    chrome.tabs.sendMessage(activeTab, message.request, {frameId: message.frameId}).then(reply, () => reply(null));
+    return true;
+  }
   if (message.type === 'choose' && connection?.readyState === WebSocket.OPEN) {
     const id = ++wireId;
     requests.clear();

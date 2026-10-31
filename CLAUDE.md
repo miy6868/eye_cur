@@ -22,7 +22,8 @@
      → extension/content.js (페이지에 주입: 보정 화면, 커서, 대상 선택, 클릭)
          순수 계산은 extension/core.js (GazeCore), DOM 후보 수집은 extension/dom.js (GazeDOM)
 ```
-- 시스템 마우스는 움직이지 않는다. 클릭은 `element.focus()` + `element.click()`.
+- 시스템 마우스는 움직이지 않는다. 클릭은 `GazeDOM.press`: pointerdown·mousedown → `focus()` → pointerup·mouseup → `click()`.
+- iframe 속 요소: 모든 프레임에 manifest `content_scripts`로 core·dom·`frame.js`가 들어간다. content.js `askFrames`가 `frameRelay`로 워커에 부탁 → 워커가 `chrome.tabs.sendMessage(..., {frameId})`로 frame.js에 `frameCollect`/`frameClick` 전달. 좌표는 iframe 내용 왼쪽 위만큼 옮기고, id는 content.js가 `e`+번호로 다시 붙인다(Jev 형식).
 - 대상 선택 기본은 `NearestSelector`(로컬). `USE_JEV = true`면 후보를 서버 → TypeSafe Jev API(`backend/jev.py`)로 보내 고른다.
 - 클릭 기본은 입 벌리기(`MouthClick`). `CLICK_MODE = 'eyes'`면 양눈 감기(`Blink`).
 
@@ -34,11 +35,12 @@
 | `backend/gestures.py` | `EyeState`(개인별 뜬 눈 기준 = 80분위, 감는 중/감음/다시 뜸 히스테리시스, `openness`), `mouth_ratio`, `MouthState`(MAR 히스테리시스) |
 | `backend/camera.py` | `open_capture`(Windows DSHOW / Linux V4L2), `find_cameras`, `pick_camera`, `choose_camera`(여러 대면 터미널에서 묻고 `CAMERA_INDEX` 환경변수 설정), `LatestCamera` |
 | `backend/jev.py` | `build_request`(후보 1~8개 검증, `none` 선택지 포함), `choose`(1.5초 타임아웃) |
-| `extension/manifest.json` | MV3, 권한 activeTab·scripting·storage·power, 모든 http/https 호스트 |
-| `extension/worker.js` | 세션 상태(`enabled`, `activeTab`, `context`, `savedCalibration`). `start`/`stop`/`attach`/`detach`/`followFocusedTab`, 소켓 `connect`와 재연결(`retrySocket`), 페이지 재시도(`retryPage`), 탭·창 이벤트, 화면 꺼짐 방지(`chrome.power`) |
-| `extension/content.js` | 페이지 쪽 전부: 상수(`USE_JEV`, `CLICK_MODE`, `CLICK_DRIFT`, 보정 시간), shadow DOM UI(보정 화면·커서·초록 테두리·정보 패널), 9점 보정(`showPoint`→`calibrate`→`finishPoint`→`learn`→`judge`→`finishCalibration`), `frame()`(메인 루프), `chooseNearest`, `click`, 필터 순환(F), ESC 중지 |
+| `extension/manifest.json` | MV3, 권한 activeTab·scripting·storage·power, 모든 http/https 호스트, 모든 프레임에 core·dom·frame.js |
+| `extension/worker.js` | 세션 상태(`enabled`, `activeTab`, `context`, `savedCalibration`). `start`/`stop`/`attach`/`detach`/`followFocusedTab`, 소켓 `connect`와 재연결(`retrySocket`), 페이지 재시도(`retryPage`), iframe 중계(`frameRelay`), 탭·창 이벤트, 화면 꺼짐 방지(`chrome.power`) |
+| `extension/content.js` | 페이지 쪽 전부: 상수(`USE_JEV`, `CLICK_MODE`, `CLICK_DRIFT`, 보정 시간), shadow DOM UI(보정 화면·커서·초록 테두리·정보 패널), 9점 보정(`showPoint`→`calibrate`→`finishPoint`→`learn`→`judge`→`finishCalibration`), `frame()`(메인 루프), `candidates`·`askFrames`(iframe 후보 비동기로 받아 `frameItems`에 둠)·`unchanged`, `chooseNearest`, `click`, 필터 순환(F), ESC 중지 |
 | `extension/core.js` | `GazeCore`: 보정 점·순서, `gazeRecord`, `medianGaze`, `fitPoints`/`fit`/`predict`(정규화 1차 회귀 + LOO 교차검증, 16점 이상이면 2차 후보), `Blink`, `MouthClick`, `MovingAverage`, `ExponentialSmoothing`, `FixationFilter`, `jitter`, `NearestSelector`, `eyeRange`/`eyeSize`, `correctDrift`, `distanceToRect` |
-| `extension/dom.js` | `GazeDOM.collect`(클릭 가능한 요소 → 시선에서 가까운 8개), `unchanged`(클릭 직전 위치·href 그대로인지), `available`(elementFromPoint로 가려짐 검사), `regions`(링크·제목은 텍스트 줄 단위 사각형) |
+| `extension/dom.js` | `GazeDOM.collect`(클릭 가능한 요소 → 시선에서 가까운 8개), `unchanged`(클릭 직전 위치·href 그대로인지), `available`(elementFromPoint로 가려짐 검사), `regions`(링크·제목은 텍스트 줄 단위 사각형), `press`(마우스 이벤트 순서로 클릭) |
+| `extension/frame.js` | 맨 위가 아닌 프레임에서만 동작. `frameCollect`(그 프레임 좌표로 후보 반환), `frameClick`(id로 `unchanged` 확인 후 `press`) |
 | `extension/popup.html`, `popup.js` | 토큰 입력, 시작/다시 보정/중지, 상태·마지막 점 오차, "화면에 정보 표시" 스위치(`showInfo`) |
 | `demo.html` | 시연·테스트 페이지(`/demo`) |
 | `vendor/unigaze.py` | UniGaze-B(ViT-B/16)를 torch만으로 다시 쓴 것. 설치 때 ONNX 변환에만 사용 |
@@ -51,7 +53,7 @@
 | 파일 | 대상 |
 |---|---|
 | `tests/core.test.cjs` | core.js 전부(클릭 판정, 회귀, 필터, 선택기, 보정 순서·중앙값, 드리프트, 눈 크기) |
-| `tests/worker.test.cjs` | worker.js를 가짜 `chrome`·WebSocket·타이머로 `vm`에서 실행(`harness()`). 탭 전환, 재연결, 보정 저장/폐기, 초점 처리 |
+| `tests/worker.test.cjs` | worker.js를 가짜 `chrome`·WebSocket·타이머로 `vm`에서 실행(`harness()`). 탭 전환, 재연결, 보정 저장/폐기, 초점 처리, iframe 중계 |
 | `tests/test_backend.py` | jev 요청, `/health`, `/demo`, 소켓 인증·정리, 보정 기록 저장, cancel |
 | `tests/test_gestures.py`, `test_normalization.py`, `test_tracker_async.py`, `test_camera.py` | 눈·입 판정, 얼굴 정규화·머리 각도·텐서, 느린 모델이 눈 프레임을 막지 않는지, 카메라 선택 |
 | `tests/browser.cjs` | 선택 사항. Playwright로 demo.html에 content.js를 주입하는 통합 테스트(기본 Chrome 경로가 Windows). 자동 실행 대상 아님 |
@@ -64,7 +66,8 @@
 
 워커 ↔ 페이지 (`chrome.tabs.sendMessage` / `runtime.sendMessage`, 모두 `context`(UUID)로 오래된 페이지 메시지를 거른다)
 - 워커 → 페이지: `start {context, calibration}`, `suspend`, 그리고 서버 메시지(`status`, `frame`, `selection`)를 그대로 전달.
-- 페이지 → 워커: `calibrated {model, layout}`, `calibrationInvalid`, `recalibrate`, `choose`, `calibrationLog`, `uiStatus`, `stop {reason}`.
+- 페이지 → 워커: `calibrated {model, layout}`, `calibrationInvalid`, `recalibrate`, `choose`, `calibrationLog`, `uiStatus`, `stop {reason}`, `frameRelay {frameId, request}`(request는 `frameCollect {x, y, radius}` → 후보 배열, `frameClick {id}` → true/false만 허용).
+- 워커 → frame.js: `frameRelay`의 request를 그대로 해당 `frameId`에만 보낸다. 워커가 탭 전체로 보내는 다른 메시지에는 frame.js가 답하지 않는다.
 - 팝업 → 워커(sender.tab 없음): `getStatus`, `start {tabId, token}`, `stop`, `recalibrate {tabId}`.
 
 저장소(`chrome.storage.local`): `pairingToken`, `showInfo`, `calibration {model, layout}`.
