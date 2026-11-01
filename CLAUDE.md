@@ -39,7 +39,7 @@
 | `backend/server.py` | FastAPI 서버(`/health`, `/demo`, `/ws`). 세션은 동시에 1개만. 인증(origin + `runtime.json` 토큰) 뒤 맨 먼저 `settings`를 보낸다. 보정 기록은 `logs/pursuit.jsonl`에 한 줄씩 쌓인다(config.toml `save_calibration_log = false`면 저장 안 함) |
 | `backend/tracker.py` | 카메라 프레임 → `frame` 메시지. 시선 모델은 별도 스레드라 느려도 눈·입 판정 프레임은 막히지 않는다. 눈 감는 중·얼굴 잃음 직후 250ms와 500ms 넘게 늦은 시선 결과는 버린다 |
 | `backend/gestures.py` | 눈·입 판정. 눈은 사람마다 평소 뜬 눈(80분위)을 기준으로 삼고, 눈·입 모두 문턱값 두 개로 상태가 깜빡이지 않게 한다 |
-| `backend/camera.py` | OS별 카메라 열기(Windows DSHOW / Linux V4L2)와 최신 프레임만 남기는 읽기 스레드. 큰 크기는 MJPG를 요청하지 않으면 YUYV로 10fps가 되는 웹캠이 있다. 시작 때 고른 카메라 번호는 `CONFIG`에만 넣고 config.toml 파일은 바꾸지 않는다 |
+| `backend/camera.py` | OS별 카메라 열기(Windows DSHOW / Linux V4L2)와 최신 프레임만 남기는 읽기 스레드. 큰 크기는 MJPG를 요청하지 않으면 YUYV로 10fps가 되는 웹캠이 있다. Windows DSHOW는 크기를 바꾸면 형식이 되돌아가 MJPG를 크기 뒤에 다시 요청해야 한다. 시작 때 고른 카메라 번호는 `CONFIG`에만 넣고 config.toml 파일은 바꾸지 않는다 |
 | `backend/config.py`, `config.toml` | 모든 사용자 설정. config.toml은 git에 포함되고 사용자가 직접 고친다(BOM 있어도 읽음) |
 | `extension/manifest.json` | MV3. core·dom·frame.js는 모든 프레임에 자동으로 들어가고, content.js는 워커가 지금 탭에만 주입한다. `words/*.json`은 web_accessible_resources |
 | `extension/worker.js` | 서비스 워커: 서버 소켓 1개, 지금 보는 탭 하나에만 붙인다. 보정·서버 `settings`를 기억했다가 새로 붙는 탭에 넘긴다. iframe 중계, 탭 목록·전환, 실행 중 화면 꺼짐 방지 |

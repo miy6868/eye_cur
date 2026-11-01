@@ -82,11 +82,15 @@ class LatestCamera:
     def __init__(self, index):
         self.cap = open_capture(index)
         # 큰 크기는 압축 안 된 방식(YUYV)이면 USB 대역폭 때문에 10fps로 떨어지는 웹캠이 많아 MJPG를 먼저 요청한다.
-        # 카메라가 지원하지 않으면 무시되고, 실제로 나오는 크기는 Tracker가 프레임에서 읽는다
+        # 카메라가 지원하지 않으면 무시되고, 실제로 나오는 크기는 Tracker가 프레임에서 읽는다.
+        # Windows DSHOW는 크기를 바꿀 때 형식을 기본(YUY2)으로 되돌려 크기 뒤에 한 번 더 요청해야 한다
+        # (학교 노트북 웹캠: 1280×720이 MJPG 먼저면 YUY2 10fps, 크기 뒤에 요청하면 MJPG 30fps)
         width, height = CONFIG["camera_size"]
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        mjpg = cv2.VideoWriter_fourcc(*"MJPG")
+        self.cap.set(cv2.CAP_PROP_FOURCC, mjpg)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self.cap.set(cv2.CAP_PROP_FOURCC, mjpg)
         if not self.cap.isOpened():
             self.cap.release()
             raise RuntimeError("웹캠을 열 수 없습니다. 카메라 권한과 config.toml의 camera_index를 확인하세요.")
