@@ -3,7 +3,7 @@
   globalThis.__gazeInstalled = true;
   // true: 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 고친다(클릭 보정). 효과를 아직 측정하지 않아 기본은 끔
   const CLICK_DRIFT = false;
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, sameLayout, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, RateMeter, jitter, sameLayout, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = globalThis.GazeCore;
   // 조정 값(config.toml → 서버 → settings 메시지). 객체를 잡아 두면 값이 바뀌어도 새 값을 본다
   const CLICK = SETTINGS.click, CAL = SETTINGS.calibration;
   // 클릭 방식: config.toml [click] mode. 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 양눈 감기 클릭
@@ -42,6 +42,7 @@
   let running = false, host, shadow, model, calibration, smooth, clicker;
   let selected = null;
   let lastFrame = 0, timer, layout, lastStatus = '';
+  const pageRate = new RateMeter(), perf = {};
   let ids = new WeakMap(), idNumber = 0;
   let frameIds = new Map(), frameItems = [], frameBusy = false; // iframe 속 후보 (askFrames)
   // 팝업의 '화면에 정보 표시'. 사이트를 방해하지 않도록 기본은 꺼짐.
@@ -128,10 +129,15 @@
       #dot{position:fixed;width:22px;height:22px;border:6px solid #21dba0;border-radius:50%;background:#111827;transform:translate(-50%,-50%)}
       #guide{position:fixed;top:30%;left:50%;transform:translate(-50%,-50%);font:16px/1.5 system-ui;color:#111827;text-align:center}
       /* 정보 상자는 보기만 한다: 마우스가 통과해서 아래 사이트를 그대로 누를 수 있다 */
-      #panel{position:fixed;bottom:14px;left:14px;max-width:520px;border:1px solid #ffffff24;background:#142236;color:#fff;border-radius:9px;padding:10px 14px;font:13px/1.5 system-ui;display:flex;flex-wrap:wrap;gap:12px;align-items:center;pointer-events:none}
+      /* 크기를 고정한 칸에 줄마다 자리를 정해 두어 글자 길이·숫자가 바뀌어도 상자 크기가 변하지 않는다(넘치면 …) */
+      #panel{position:fixed;bottom:14px;left:14px;width:min(640px,calc(100vw - 28px));box-sizing:border-box;border:1px solid #ffffff24;background:#142236;color:#fff;border-radius:9px;padding:10px 14px;font:13px/1.5 system-ui;font-variant-numeric:tabular-nums;display:grid;grid-template-columns:1fr 1fr 200px;column-gap:12px;align-items:center;pointer-events:none}
+      #panel>span{min-width:0;height:1.5em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      #head,#perf,#status,#eyesize{grid-column:1/-1}
+      #panel>#status{height:3em;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+      #graph{grid-column:3;grid-row:1/span 3}
       button{pointer-events:auto;white-space:nowrap;border:0;border-radius:5px;padding:6px 9px;background:#33465e;color:#fff;cursor:pointer}
       /* 보정 중에는 안내(30%)와 정보 상자(70%)를 점 줄(10·50·90%) 사이에 두어 점을 가리지 않게 한다 */
-      #panel.calibrating{top:70%;bottom:auto;left:50%;transform:translate(-50%,-50%);max-width:min(760px,90vw)}
+      #panel.calibrating{top:70%;bottom:auto;left:50%;transform:translate(-50%,-50%);width:min(640px,90vw);grid-template-columns:1fr 1fr}
       #panel.calibrating :is(#mouth,#filter,#jitter,#graph){display:none}
       #eyesize{color:#ffcf4d;font-weight:600}
       #raw{position:fixed;width:6px;height:6px;border-radius:50%;background:#ff3b3b;transform:translate(-50%,-50%)}
@@ -178,7 +184,7 @@
       <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 약 27초</div><div id="next"></div><div id="dot"></div><div id="choices" hidden><button id="use">그래도 사용</button><button id="retry">다시 보정</button></div></div>
       <div id="overlay" hidden></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div><div id="timer" hidden><div id="ring"></div><div id="timerLabel"></div></div>
-      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="head"></span><span id="quality"></span><span id="drift"></span><span id="eyesize"></span><span id="status"></span><span id="filter"></span><span id="jitter"></span><canvas id="graph" width="200" height="50"></canvas></div>`;
+      <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="quality"></span><span id="drift"></span><span id="filter"></span><span id="jitter"></span><span id="head"></span><span id="perf"></span><span id="status"></span><span id="eyesize"></span><canvas id="graph" width="200" height="50"></canvas></div>`;
     document.documentElement.appendChild(host);
     // 진짜 마우스로 키를 눌러도 페이지 입력칸의 초점을 빼앗지 않는다
     shadow.querySelector('#overlay').addEventListener('mousedown', event => event.preventDefault());
@@ -330,15 +336,26 @@
   // 머리 기울기·거리를 보여 주고, 보정할 때와 얼마나 달라졌는지 비교한다
   // 이 값이 많이 바뀔수록 가장자리 오차가 커지는지 확인하려는 측정용 표시
   function showHead(message) {
-    let text = `머리 기울기 ${message.headRoll.toFixed(1)}° · 끄덕임 ${message.headPitch?.toFixed(1)}° · 거리 ${message.headDistance}mm`;
+    let text = `머리 기울기 ${message.headRoll.toFixed(1)}° 끄덕임 ${message.headPitch?.toFixed(1)}° 거리 ${message.headDistance}mm`;
     if (model?.head) {
       const roll = message.headRoll - model.head.roll;
       const pitch = message.headPitch - model.head.pitch;
       const distance = (message.headDistance / model.head.distance - 1) * 100;
       const signed = (value, digits) => `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
-      text += ` (보정 대비 기울기 ${signed(roll, 1)}°, 끄덕임 ${signed(pitch, 1)}°, 거리 ${signed(distance, 0)}%)`;
+      text += ` · 보정 대비 ${signed(roll, 1)}° ${signed(pitch, 1)}° ${signed(distance, 0)}%`;
     }
     shadow.querySelector('#head').textContent = text;
+  }
+  // 속도: 카메라 크기·fps(서버가 새 프레임을 받은 빈도), 시선 fps(시선 결과가 나온 빈도)와 추론 시간·지연,
+  // 페이지 fps(이 페이지가 처리한 프레임 수: 페이지가 느리면 워커가 중간 프레임을 버려 카메라보다 낮아진다)
+  function showPerf(message, now) {
+    pageRate.add(now);
+    if (Number.isFinite(message.inferenceMs)) perf.inference = message.inferenceMs;
+    if (Number.isFinite(message.captureAgeMs)) perf.age = message.captureAgeMs;
+    const fps = value => Number.isFinite(value) ? Math.round(value) : '-';
+    const size = message.cameraSize ? `${message.cameraSize[0]}×${message.cameraSize[1]} ` : '';
+    shadow.querySelector('#perf').textContent = `카메라 ${size}${fps(message.cameraFps)}fps · 시선 ${fps(message.gazeFps)}fps ` +
+      `(추론 ${perf.inference ?? '-'}ms, 지연 ${perf.age ?? '-'}ms) · 페이지 ${fps(pageRate.value(now))}fps`;
   }
   // 보정 때보다 눈을 너무 크게/작게 뜨면 알려 준다 (그때는 예측이 틀어지기 쉽다)
   function showEyeSize(openness) {
@@ -445,6 +462,7 @@
     const mar = Number.isFinite(message.mar) ? message.mar.toFixed(2) : '-';
     shadow.querySelector('#mouth').textContent = `입 ${message.mouthOpen ? '벌림' : '다뭄'} · MAR ${mar}`;
     if (Number.isFinite(message.headRoll)) showHead(message);
+    showPerf(message, now);
     // 보정 중에는 페이지 초점을 따지지 않는다: 점이 화면에 보이기만 하면 되고,
     // Linux에서는 팝업을 열고 닫는 것만으로 초점이 오락가락해서 표본이 빠졌다
     const unfocused = !calibration && !document.hasFocus();

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
-from backend.tracker import Tracker
+from backend.tracker import Rate, Tracker
 
 
 class AsyncTrackerTests(unittest.TestCase):
@@ -45,3 +45,13 @@ class AsyncTrackerTests(unittest.TestCase):
         finally:
             release.set()
             if tracker: tracker.close()
+
+
+class RateTests(unittest.TestCase):
+    def test_rate_per_second_and_old_stamps_drop(self):
+        rate = Rate(2000)
+        self.assertEqual(rate.value(0), 0.0)
+        for stamp in range(0, 1001, 100):
+            rate.add(stamp)
+        self.assertEqual(rate.value(1000), 10.0)
+        self.assertEqual(rate.value(3000), 0.0)

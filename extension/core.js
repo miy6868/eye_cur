@@ -377,9 +377,19 @@
     const amount = Math.min(1, Math.abs(depth));
     return Math.sign(depth) * (min_px + (max_px - min_px) * amount);
   }
+  // 최근 windowMs 동안 add()가 불린 빈도(초당 횟수). 정보 상자의 페이지 처리 fps 표시용
+  class RateMeter {
+    constructor(windowMs = 2000) { this.windowMs = windowMs; this.times = []; }
+    add(time) { this.times.push(time); }
+    value(now) {
+      while (this.times.length && now - this.times[0] > this.windowMs) this.times.shift();
+      const span = this.times.at(-1) - this.times[0];
+      return this.times.length < 2 || !span ? 0 : (this.times.length - 1) * 1000 / span;
+    }
+  }
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, sameLayout, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, RateMeter, jitter, distanceToRect, sameLayout, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

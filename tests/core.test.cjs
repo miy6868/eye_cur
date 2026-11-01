@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, sameLayout, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, RateMeter, jitter, sameLayout, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -374,4 +374,13 @@ test('scrollSpeed is zero in the middle and faster toward the edges', () => {
   assert.ok(scrollSpeed(0) < scrollSpeed(.2));
   assert.equal(scrollSpeed(-.1), scrollSpeed(0)); // 화면 밖은 최고 속도로 자른다
   assert.equal(scrollSpeed(1), -scrollSpeed(0));
+});
+
+test('rate meter counts events per second over its window and decays to zero', () => {
+  const rate = new RateMeter(2000);
+  assert.equal(rate.value(0), 0);
+  for (let t = 0; t <= 1000; t += 100) rate.add(t);
+  assert.equal(rate.value(1000), 10);
+  // 오래된 것은 창 밖으로 빠진다: 3000ms에는 1000ms 하나만 남아 0
+  assert.equal(rate.value(3000), 0);
 });

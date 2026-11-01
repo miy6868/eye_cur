@@ -69,7 +69,7 @@
 서버 ↔ 워커 (`/ws`, JSON)
 - 워커 → 서버: 처음 `{type:'auth', token}` (5초 안). 이후 `calibrationLog`, `stop`.
 - 서버 → 워커: `settings {click, select, calibration, scroll, keyboard, shortcuts, words}`(인증 직후 한 번. `words`는 `my_words.txt`를 연결마다 다시 읽은 단어 배열), `status {message}`, `frame {...}`, `error {error, recoverable?}`. 토큰·origin이 틀리면 close 1008.
-- `frame` 필드: `valid, time(ms, 촬영 시각), eyesReady, closing, closed, openness, mouthOpen, mar, ear`. 시선이 나온 프레임에만 `gaze [yaw, pitch], gazeTime, captureAgeMs, inferenceMs, headRoll, headDistance(mm), headPitch, headYaw, iris`. 실패 시 `error`/`gazeError`.
+- `frame` 필드: `valid, time(ms, 촬영 시각), eyesReady, closing, closed, openness, mouthOpen, mar, ear, cameraFps, gazeFps, cameraSize [w, h]`(fps는 최근 2초 기준, 정보 상자 표시용). 시선이 나온 프레임에만 `gaze [yaw, pitch], gazeTime, captureAgeMs, inferenceMs, headRoll, headDistance(mm), headPitch, headYaw, iris`. 실패 시 `error`/`gazeError`.
 
 워커 ↔ 페이지 (`chrome.tabs.sendMessage` / `runtime.sendMessage`, 모두 `context`(UUID)로 오래된 페이지 메시지를 거른다)
 - 워커 → 페이지: `start {context, calibration, settings}`(워커가 기억한 마지막 `settings`), `suspend`, 그리고 서버 메시지(`settings`, `status`, `frame`)를 맨 위 프레임(`frameId: 0`)에만 그대로 전달. `frame`은 페이지가 처리를 마치고 답해야 다음 것을 보내고, 그 사이 온 것은 최신 하나만 남긴다(느린 페이지에서 몇 초 전 시선이 쌓였다). 그래서 content.js는 처리한 **뒤에** 답한다.

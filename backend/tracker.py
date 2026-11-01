@@ -2,6 +2,7 @@
 import json
 import os
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -136,6 +137,24 @@ def eye_ratio(points, ids):
                  / max(2 * width, 1e-6))
 
 
+class Rate:
+    """최근 window_ms 동안 add()가 불린 빈도(초당 횟수). 정보 상자의 fps 표시용"""
+
+    def __init__(self, window_ms=2000):
+        self.window_ms = window_ms
+        self.stamps = deque()
+
+    def add(self, stamp):
+        self.stamps.append(stamp)
+
+    def value(self, now):
+        while self.stamps and now - self.stamps[0] > self.window_ms:
+            self.stamps.popleft()
+        if len(self.stamps) < 2 or self.stamps[-1] == self.stamps[0]:
+            return 0.0
+        return round((len(self.stamps) - 1) * 1000 / (self.stamps[-1] - self.stamps[0]), 1)
+
+
 class FaceLock:
     """여러 얼굴 중 사용자 얼굴 하나를 고른다. 처음엔 가장 큰(가까운) 얼굴, 이후엔 같은 자리 얼굴을 계속 따라간다."""
 
@@ -180,6 +199,8 @@ class Tracker:
         self.eyes = EyeState()
         self.mouth = MouthState()
         self.faces = FaceLock(CONFIG["face"])
+        self.camera_rate, self.gaze_rate = Rate(), Rate()
+        self.size = None
         self.gaze_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gaze-inference")
         self.gaze_future = None
         self.gaze_blocked_until = 0
@@ -194,6 +215,17 @@ class Tracker:
             raise
 
     def read(self):
+        payload = self._read()
+        # 정보 상자용: 카메라에서 새 프레임을 받은 빈도, 시선 결과가 나온 빈도, 실제 영상 크기
+        now = round(time.monotonic() * 1000)
+        if "gaze" in payload:
+            self.gaze_rate.add(now)
+        payload.update(cameraFps=self.camera_rate.value(now), gazeFps=self.gaze_rate.value(now))
+        if self.size:
+            payload["cameraSize"] = self.size
+        return payload
+
+    def _read(self):
         ok, frame, stamp = self.cap.read()
         if not ok:
             self.eyes.lost()
@@ -202,6 +234,8 @@ class Tracker:
             return {"type": "frame", "valid": False, "time": stamp, "mouthOpen": False, "mar": None,
                     "error": "카메라 프레임을 읽지 못했습니다."}
         height, width = frame.shape[:2]
+        self.camera_rate.add(stamp)
+        self.size = [width, height]
         if self.camera_config:
             camera = np.array(self.camera_config["camera_matrix"], dtype=np.float64)
             distortion = np.array(self.camera_config["dist_coefficients"], dtype=np.float64)
