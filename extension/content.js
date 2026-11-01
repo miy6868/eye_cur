@@ -3,7 +3,7 @@
   globalThis.__gazeInstalled = true;
   // true: 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 고친다(클릭 보정). 효과를 아직 측정하지 않아 기본은 끔
   const CLICK_DRIFT = false;
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, sameLayout, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = globalThis.GazeCore;
   // 조정 값(config.toml → 서버 → settings 메시지). 객체를 잡아 두면 값이 바뀌어도 새 값을 본다
   const CLICK = SETTINGS.click, CAL = SETTINGS.calibration;
   // 클릭 방식: config.toml [click] mode. 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 양눈 감기 클릭
@@ -96,15 +96,17 @@
     host?.remove(); host = null; shadow = null;
   }
   function stop(message) { end(message); send({type: 'stop', reason: message}); }
-  function geometry() { return [innerWidth, innerHeight, screenX, screenY, devicePixelRatio, visualViewport?.scale || 1].join(','); }
+  // 화면 위 실제 크기로 적는다(사이트마다 다른 페이지 확대에 흔들리지 않게). 비교는 core.js sameLayout
+  function geometry() { return [Math.round(innerWidth * devicePixelRatio), Math.round(innerHeight * devicePixelRatio), screenX, screenY, visualViewport?.scale || 1].join(','); }
   function start(message = {}) {
     if (message.settings) configure(message.settings);
     end(); currentContext = message.context; running = true; model = null; resetFilter(); clicker = usesMouth() ? new MouthClick() : new Blink();
     ids = new WeakMap(); idNumber = 0; lastStatus = ''; lastFrame = performance.now();
     layout = geometry();
     const saved = message.calibration;
-    // 같은 창 배치에서 지금 방식·평활(config.toml [calibration] smoothing)로 만든 보정만 이어서 쓴다
-    if (saved?.layout === layout && saved.model?.method === CALIBRATION_METHOD && (saved.model.smoothing ?? 0) === CAL.smoothing) model = saved.model;
+    // 같은 창 배치에서 지금 방식으로 만든 보정만 이어서 쓴다. 평활(smoothing)은 비교하지 않는다:
+    // 확장을 새로고침하기 전부터 열린 탭에는 옛 core.js가 남아 값이 달라서 탭을 오갈 때마다 보정을 다시 했다. 바꾼 평활은 다음 보정부터 쓴다
+    if (sameLayout(saved?.layout, layout) && saved.model?.method === CALIBRATION_METHOD) model = saved.model;
     else if (saved) send({type: 'calibrationInvalid'});
     // 클릭 보정을 껐으면 예전에 저장된 오프셋도 쓰지 않는다
     if (model && !CLICK_DRIFT) delete model.offset;
@@ -189,7 +191,7 @@
     else { shadow.querySelector('#veil').hidden = true; status('저장된 보정으로 계속합니다 · 어긋나면 확장 아이콘의 다시 보정을 누르세요.'); showDrift(); }
     timer = setInterval(() => {
       if (!running) return;
-      if (geometry() !== layout) { send({type: 'calibrationInvalid'}); start({context: currentContext}); return; }
+      if (!sameLayout(geometry(), layout)) { send({type: 'calibrationInvalid'}); start({context: currentContext}); return; }
       if (performance.now() - lastFrame > 500) {
         invalidate(); hideCursor();
       }

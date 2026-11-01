@@ -32,6 +32,14 @@
     }
   }
   const CLICK = SETTINGS.click;
+  // 저장된 보정을 이 창에 써도 되는지. layout: content.js geometry() = '실제 가로 px,실제 세로 px,screenX,screenY,핀치 확대'.
+  // 페이지 확대는 사이트마다 달라서 탭을 바꾸면 devicePixelRatio·innerWidth가 함께 바뀌지만, 보정은 화면 비율이라 실제 크기가 같으면 그대로 맞다.
+  // 확대하면 innerWidth가 반올림돼 실제 크기가 몇 px 달라질 수 있어서 여유를 둔다
+  function sameLayout(a, b) {
+    if (typeof a !== 'string' || typeof b !== 'string') return false;
+    const x = a.split(',').map(Number), y = b.split(',').map(Number);
+    return x.length === 5 && y.length === 5 && x.every((v, i) => Math.abs(v - y[i]) <= (i < 2 ? 3 : 0));
+  }
   // 9점 응시 보정 설정
   // 3×3 점을 ㄹ자 순서로 본다. 가장자리 10%: 버튼이 놓이는 곳을 모두 덮으면서 화면 끝에 너무 붙지 않게
   const CALIBRATION_POINTS = [[.1, .1], [.5, .1], [.9, .1], [.9, .5], [.5, .5], [.1, .5], [.1, .9], [.5, .9], [.9, .9]];
@@ -372,6 +380,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, distanceToRect, sameLayout, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();

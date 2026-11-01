@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, jitter, sameLayout, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -140,6 +140,17 @@ test('spline calibration bends toward curved gaze and smoothing 0 keeps the line
     const exact = fitPoints(points);
     for (const p of points) assert.ok(Math.hypot(...predict(exact, p.medians[0]).map((v, k) => v - p.target[k])) < 1e-4);
   } finally { configure({calibration: {smoothing: 3}}); }
+});
+
+test('saved calibration survives page zoom but not a moved or resized window', () => {
+  // 사이트마다 다른 확대(110%): innerWidth 1447 × 1.1 → 실제 1592px로 같다
+  assert.ok(sameLayout('1592,777,0,0,1', [Math.round(1447 * 1.1), Math.round(706 * 1.1), 0, 0, 1].join(',')));
+  assert.ok(!sameLayout('1592,777,0,0,1', '1500,777,0,0,1'));  // 창 크기가 바뀜
+  assert.ok(!sameLayout('1592,777,0,0,1', '1592,777,40,0,1'));  // 창이 옮겨 감
+  assert.ok(!sameLayout('1592,777,0,0,1', '1592,777,0,0,2'));   // 핀치 확대
+  // 예전 형식(devicePixelRatio를 따로 적던 6칸)은 버리고 새로 보정한다
+  assert.ok(!sameLayout('1592,777,0,0,1,1', '1592,777,0,0,1'));
+  assert.ok(!sameLayout(undefined, '1592,777,0,0,1'));
 });
 
 test('a click moves the offset halfway toward the clicked element center', () => {
