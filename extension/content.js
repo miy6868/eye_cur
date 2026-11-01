@@ -103,8 +103,8 @@
     ids = new WeakMap(); idNumber = 0; lastStatus = ''; lastFrame = performance.now();
     layout = geometry();
     const saved = message.calibration;
-    // 같은 창 배치에서 지금 방식으로 만든 보정만 이어서 쓴다
-    if (saved?.layout === layout && saved.model?.method === CALIBRATION_METHOD) model = saved.model;
+    // 같은 창 배치에서 지금 방식·평활(config.toml [calibration] smoothing)로 만든 보정만 이어서 쓴다
+    if (saved?.layout === layout && saved.model?.method === CALIBRATION_METHOD && (saved.model.smoothing ?? 0) === CAL.smoothing) model = saved.model;
     else if (saved) send({type: 'calibrationInvalid'});
     // 클릭 보정을 껐으면 예전에 저장된 오프셋도 쓰지 않는다
     if (model && !CLICK_DRIFT) delete model.offset;
@@ -285,7 +285,7 @@
     // 화면 비율 단위 오차를 픽셀로 대략 바꾼다 (가로·세로 오차가 비슷하다고 본다)
     const pixelRms = Math.round(rms * Math.hypot(innerWidth, innerHeight) / Math.SQRT2);
     // 나중에 회귀·입력을 바꿨을 때 같은 자료로 비교할 수 있도록 원래 값을 모두 남긴다
-    send({type: 'calibrationLog', screen: [innerWidth, innerHeight], method: CALIBRATION_METHOD,
+    send({type: 'calibrationLog', screen: [innerWidth, innerHeight], method: CALIBRATION_METHOD, smoothing: CAL.smoothing,
       crossError: rms, errorPixels: pixelRms, points: calibration.points, records: calibration.log});
     if (!Number.isFinite(rms)) { calibrationFailed('시선 좌표 계산에 실패했습니다. 다시 보정해 주세요.'); return; }
     if (rms > CAL.max_error) {

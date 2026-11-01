@@ -5,7 +5,7 @@
   const SETTINGS = {
     click: {mode: 'mouth', mouth_min_ms: 500, mouth_max_ms: 2000, mouth_cooldown_ms: 800, eyes_min_ms: 600, eyes_max_ms: 2000, eyes_cooldown_ms: 800},
     select: {dwell_ms: 300, switch_margin_px: 30},
-    calibration: {lead_ms: 500, settle_ms: 800, collect_ms: 600, min_records: 3, timeout_ms: 2100, max_error: .15},
+    calibration: {lead_ms: 500, settle_ms: 800, collect_ms: 600, min_records: 3, timeout_ms: 2100, max_error: .15, smoothing: 3},
     scroll: {band: .25, min_px: 150, max_px: 1200},
     keyboard: {height: 75},
   };
@@ -78,7 +78,7 @@
   function fitPoints(points) {
     // 두 바퀴 값을 평균한다. 한 바퀴에서만 표본을 얻은 점은 그 값만 쓴다
     const samples = points.filter(p => p.medians.length).map(p => ({target: p.target, gaze: average(p.medians)}));
-    // 표본이 점 9개뿐이라 fit은 1차 회귀를 쓰고, 점 하나씩 빼고 맞혀 보는 교차 검증 오차를 붙인다
+    // 표본이 점 9개뿐이라 fit은 1차 회귀(+ smoothing이면 얇은 판 스플라인)를 쓰고, 점 하나씩 빼고 맞혀 보는 교차 검증 오차를 붙인다
     return fit(samples);
   }
   // 입력마다 평균 0, 표준편차 1로 맞춘 뒤 회귀 항을 만든다. 1차: 1, 각 입력. 2차: 거기에 두 입력의 곱을 모두 더한다
@@ -101,24 +101,53 @@
     const gram = columns.map(i => columns.map(j => rows.reduce((sum, r) => sum + r[i] * r[j], 0) + (i === j && i > 0 ? penalty : 0)));
     const coefficients = [0, 1].map(k => solve(gram, columns.map(j => rows.reduce((sum, r, i) => sum + r[j] * samples[i].target[k], 0))));
     const model = {mean, scale, coefficients, degree, penalty};
-    model.error = Math.sqrt(samples.reduce((sum, s) => sum + predict(model, s.gaze).reduce((e, v, k) => e + (v - s.target[k]) ** 2, 0), 0) / samples.length);
+    model.error = rms(model, samples);
     return model;
   }
-  function crossError(samples, degree, penalty) {
+  function rms(model, samples) {
+    return Math.sqrt(samples.reduce((sum, s) => sum + predict(model, s.gaze).reduce((e, v, k) => e + (v - s.target[k]) ** 2, 0), 0) / samples.length);
+  }
+  // 얇은 판 스플라인의 휘는 항 r² log r (표준화한 시선 좌표 사이 거리 r)
+  function bend(a, b) {
+    const r2 = (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
+    return r2 > 0 ? r2 * Math.log(r2) / 2 : 0;
+  }
+  // 1차 회귀 + 점마다 휘는 항. smoothing이 클수록 1차에 가깝다. 9점 기록 43개에서 1차보다 약 3px 나았다(docs/agent/calibration.md)
+  function spline(samples, smoothing) {
+    const model = regression(samples, 1); // 같은 표준화·시선 변화 검사를 쓰고, 1차 계수는 아래에서 휘는 항과 함께 다시 푼다
+    const z = samples.map(s => s.gaze.map((v, k) => (v - model.mean[k]) / model.scale[k]));
+    const n = z.length;
+    // [K + λI, P; Pᵀ, 0]: 휘는 항이 1차로 설명되는 부분을 가져가지 못하게 한다
+    const matrix = [
+      ...z.map((a, i) => [...z.map((b, j) => bend(a, b) + (i === j ? smoothing : 0)), 1, ...a]),
+      ...[0, 1, 2].map(r => [...z.map(a => (r ? a[r - 1] : 1)), 0, 0, 0]),
+    ];
+    const solutions = [0, 1].map(k => solve(matrix, [...samples.map(s => s.target[k]), 0, 0, 0]));
+    model.centers = z;
+    model.weights = solutions.map(x => x.slice(0, n));
+    model.coefficients = solutions.map(x => x.slice(n));
+    model.smoothing = smoothing;
+    model.error = rms(model, samples);
+    return model;
+  }
+  function crossError(samples, train) {
     try {
-      return Math.sqrt(samples.reduce((sum, s, i) => {
-        const model = regression(samples.filter((_, j) => j !== i), degree, penalty);
-        return sum + predict(model, s.gaze).reduce((e, value, k) => e + (value - s.target[k]) ** 2, 0);
-      }, 0) / samples.length);
+      return Math.sqrt(samples.reduce((sum, s, i) => sum + rms(train(samples.filter((_, j) => j !== i)), [s]) ** 2, 0) / samples.length);
     } catch { return Infinity; }
   }
   function fit(samples) {
     if (samples.length < 9) throw new Error('보정 자료가 부족합니다.');
+    // 표본이 적으면 2차 항(계수 6개)이 잡음까지 외우므로 1차(+ 휘는 항)만 쓴다. 9점 보정은 항상 여기서 끝난다
+    const smoothing = SETTINGS.calibration.smoothing;
+    if (samples.length < 16 && smoothing > 0) {
+      const model = spline(samples, smoothing);
+      model.crossError = crossError(samples, s => spline(s, smoothing));
+      return model;
+    }
     const linear = regression(samples, 1);
-    linear.crossError = crossError(samples, 1, 0);
-    // 표본이 적으면 2차 항(계수 6개)이 잡음까지 외우므로 1차만 쓴다. 9점 보정은 항상 여기서 끝난다
+    linear.crossError = crossError(samples, s => regression(s, 1));
     if (samples.length < 16) return linear;
-    const options = [.01, .1, 1].map(penalty => ({penalty, error: crossError(samples, 2, penalty)})).sort((a, b) => a.error - b.error);
+    const options = [.01, .1, 1].map(penalty => ({penalty, error: crossError(samples, s => regression(s, 2, penalty))})).sort((a, b) => a.error - b.error);
     // 교차 검증에서 2차가 5% 이상 나을 때만 2차를 쓴다
     if (options[0].error < linear.crossError * .95) {
       const quadratic = regression(samples, 2, options[0].penalty);
@@ -129,7 +158,9 @@
   }
   function predict(model, gaze) {
     const row = features(gaze, model.mean, model.scale, model.degree || 1);
-    return model.coefficients.map((c, axis) => c.reduce((sum, v, k) => sum + v * row[k], 0) + (model.offset?.[axis] || 0));
+    const z = row.slice(1, 3);
+    return model.coefficients.map((c, axis) => c.reduce((sum, v, k) => sum + v * row[k], 0) + (model.offset?.[axis] || 0)
+      + (model.weights?.[axis].reduce((sum, w, i) => sum + w * bend(z, model.centers[i]), 0) || 0));
   }
   class Blink {
     constructor() { this.reset(); this.cooldown = 0; }

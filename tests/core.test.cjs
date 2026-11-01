@@ -121,6 +121,27 @@ test('point fit averages both passes and uses one pass when the other is missing
   assert.equal(model.degree, 1);
 });
 
+test('spline calibration bends toward curved gaze and smoothing 0 keeps the linear fit', () => {
+  // 위아래로 볼수록 좌우 값이 휘는 시선(가장자리에서 1차가 못 맞춘다)
+  const points = CALIBRATION_POINTS.map(([x, y]) => ({target: [x, y], medians: [[(x - .5) * .4 + .06 * (2 * y - 1) ** 2, (y - .5) * .3 + .04 * (2 * x - 1) ** 2]]}));
+  try {
+    configure({calibration: {smoothing: 0}});
+    const linear = fitPoints(points);
+    assert.equal(linear.weights, undefined);
+    configure({calibration: {smoothing: 3}});
+    const spline = fitPoints(points);
+    assert.equal(spline.smoothing, 3);
+    assert.ok(spline.crossError < linear.crossError && spline.error < linear.error);
+    // 저장소에 넣었다 꺼낸 모델도 같은 값을 낸다
+    const stored = JSON.parse(JSON.stringify(spline));
+    assert.deepEqual(predict(stored, points[0].medians[0]), predict(spline, points[0].medians[0]));
+    // 평활이 아주 작으면 보정 점을 거의 그대로 지난다
+    configure({calibration: {smoothing: 1e-6}});
+    const exact = fitPoints(points);
+    for (const p of points) assert.ok(Math.hypot(...predict(exact, p.medians[0]).map((v, k) => v - p.target[k])) < 1e-4);
+  } finally { configure({calibration: {smoothing: 3}}); }
+});
+
 test('a click moves the offset halfway toward the clicked element center', () => {
   // 요소 가운데 (500, 300), 예측 (460, 360): 가로 +40px, 세로 -60px 차이의 절반만큼
   const offset = correctDrift(undefined, [460, 360], [450, 280, 100, 40], [1000, 600]);
