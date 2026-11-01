@@ -136,15 +136,50 @@ def eye_ratio(points, ids):
                  / max(2 * width, 1e-6))
 
 
+class FaceLock:
+    """여러 얼굴 중 사용자 얼굴 하나를 고른다. 처음엔 가장 큰(가까운) 얼굴, 이후엔 같은 자리 얼굴을 계속 따라간다."""
+
+    def __init__(self, settings):
+        self.min_size = settings["min_size"]
+        self.switch = settings["switch"]
+        self.forget_ms = settings["forget_ms"]
+        self.size = 0.0      # 마지막으로 고른 얼굴 크기(두 눈 바깥 꼬리 사이 px)
+        self.center = None
+        self.seen = None     # 마지막으로 고른 시각(ms)
+
+    def choose(self, faces, stamp):
+        """faces: 얼굴마다 점 배열(px). 고른 번호와 사람이 바뀌었는지를 돌려준다. 고를 얼굴이 없으면 (None, False)."""
+        remembered = self.seen is not None and stamp - self.seen <= self.forget_ms
+        info = [(float(np.linalg.norm(p[33] - p[263])), p.mean(axis=0), i) for i, p in enumerate(faces)]
+        if remembered:
+            # 뒤에 있는 사람(사용자보다 훨씬 작은 얼굴)은 사용자가 잠깐 안 보일 때도 잡지 않는다
+            info = [f for f in info if f[0] >= self.min_size * self.size]
+        if not info:
+            return None, False
+        best = max(info, key=lambda f: f[0])
+        current = None
+        if remembered:
+            # 바로 전 얼굴 자리에서 얼굴 크기만큼 안에 있는 가장 가까운 얼굴 = 같은 사람
+            near = [f for f in info if np.linalg.norm(f[1] - self.center) <= max(self.size, 1.0)]
+            current = min(near, key=lambda f: np.linalg.norm(f[1] - self.center)) if near else None
+            if current is not None and best[0] <= self.switch * current[0]:
+                best = current
+        changed = self.seen is not None and best is not current
+        self.size, self.center, self.seen = best[0], best[1], stamp
+        return best[2], changed
+
+
 class Tracker:
     def __init__(self):
         cv2.setNumThreads(1)
         self.model = load_model()
         self.mesh = mp.solutions.face_mesh.FaceMesh(
-            max_num_faces=1, refine_landmarks=True,
+            # 여러 얼굴을 찾아 FaceLock이 사용자 얼굴을 고른다. 1개만 찾으면 MediaPipe가 먼저 찾은 뒷사람이 잡힐 수 있다
+            max_num_faces=max(1, CONFIG["face"]["max_faces"]), refine_landmarks=True,
             min_detection_confidence=0.6, min_tracking_confidence=0.6)
         self.eyes = EyeState()
         self.mouth = MouthState()
+        self.faces = FaceLock(CONFIG["face"])
         self.gaze_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gaze-inference")
         self.gaze_future = None
         self.gaze_blocked_until = 0
@@ -176,13 +211,17 @@ class Tracker:
             focal = float(max(width, height))
             camera = np.array([[focal, 0, width / 2], [0, focal, height / 2], [0, 0, 1.]])
         result = self.mesh.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        if not result.multi_face_landmarks:
+        faces = [np.array([[p.x * width, p.y * height] for p in face.landmark])
+                 for face in result.multi_face_landmarks or []]
+        chosen, changed = self.faces.choose(faces, stamp) if faces else (None, False)
+        if chosen is None or changed:
+            # 얼굴을 잃었거나 다른 사람으로 바뀌면 이전 사람의 입·눈 상태와 직후 시선을 이어 쓰지 않는다
             self.eyes.lost()
             self.mouth.lost()
             self.gaze_blocked_until = stamp + 250
+        if chosen is None:
             return {"type": "frame", "valid": False, "time": stamp, "mouthOpen": False, "mar": None}
-        points = np.array([[p.x * width, p.y * height]
-                           for p in result.multi_face_landmarks[0].landmark])
+        points = faces[chosen]
         ratios = [eye_ratio(points, [33, 160, 158, 133, 153, 144]),
                   eye_ratio(points, [362, 385, 387, 263, 373, 380])]
         eyes = self.eyes.update(ratios)

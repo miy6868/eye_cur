@@ -37,7 +37,7 @@
 | 파일 | 역할 · 코드만 봐선 모르는 것 |
 |---|---|
 | `backend/server.py` | FastAPI 서버(`/health`, `/demo`, `/ws`). 세션은 동시에 1개만. 인증(origin + `runtime.json` 토큰) 뒤 맨 먼저 `settings`를 보낸다. 보정 기록은 `logs/pursuit.jsonl`에 한 줄씩 쌓인다(config.toml `save_calibration_log = false`면 저장 안 함) |
-| `backend/tracker.py` | 카메라 프레임 → `frame` 메시지. 시선 모델은 별도 스레드라 느려도 눈·입 판정 프레임은 막히지 않는다. 눈 감는 중·얼굴 잃음 직후 250ms와 500ms 넘게 늦은 시선 결과는 버린다 |
+| `backend/tracker.py` | 카메라 프레임 → `frame` 메시지. 시선 모델은 별도 스레드라 느려도 눈·입 판정 프레임은 막히지 않는다. 눈 감는 중·얼굴 잃음 직후 250ms와 500ms 넘게 늦은 시선 결과는 버린다. 얼굴을 여러 개 찾고 `FaceLock`이 사용자 얼굴을 고른다(처음엔 가장 큰 얼굴, 이후 같은 자리 얼굴, 훨씬 작은 뒷사람은 무시). 사람이 바뀌면 얼굴 잃음과 같이 입·눈 상태를 끊는다 |
 | `backend/gestures.py` | 눈·입 판정. 눈은 사람마다 평소 뜬 눈(80분위)을 기준으로 삼고, 눈·입 모두 문턱값 두 개로 상태가 깜빡이지 않게 한다 |
 | `backend/camera.py` | OS별 카메라 열기(Windows DSHOW / Linux V4L2)와 최신 프레임만 남기는 읽기 스레드. 큰 크기는 MJPG를 요청하지 않으면 YUYV로 10fps가 되는 웹캠이 있다. Windows DSHOW는 크기를 바꾸면 형식이 되돌아가 MJPG를 크기 뒤에 다시 요청해야 한다. 시작 때 고른 카메라 번호는 `CONFIG`에만 넣고 config.toml 파일은 바꾸지 않는다 |
 | `backend/config.py`, `config.toml` | 모든 사용자 설정. config.toml은 git에 포함되고 사용자가 직접 고친다(BOM 있어도 읽음) |
@@ -62,6 +62,7 @@
 | `tests/core.test.cjs` | core.js 전부(클릭 판정·메뉴용 long, 회귀, 필터, 선택기, 보정 순서·중앙값, 드리프트, 눈 크기, 추천, 조합 글자 바꾸기, 스크롤 속도) |
 | `tests/worker.test.cjs` | worker.js를 가짜 `chrome`·WebSocket·타이머로 `vm`에서 실행(`harness()`). 탭 전환, 재연결, 보정 저장/폐기, 초점 처리, iframe 중계, 탭 고르기(`listTabs`/`switchTab`) |
 | `tests/test_backend.py` | `/health`, `/demo`, 소켓 인증·정리·처음 `settings`, 보정 기록 저장 |
+| `tests/test_face_lock.py` | 여러 얼굴 중 사용자 얼굴 고르기(가장 큰 얼굴, 따라가기, 뒷사람 무시, 잊기) |
 | `tests/test_gestures.py`, `test_normalization.py`, `test_tracker_async.py`, `test_camera.py` | 눈·입 판정, 얼굴 정규화·머리 각도·텐서, 느린 모델이 눈 프레임을 막지 않는지, 카메라 선택 |
 
 ## 메시지
@@ -80,7 +81,7 @@
 - 저장된 보정은 `layout`(content.js `geometry()` = 창의 실제 픽셀 크기(inner × devicePixelRatio)·위치·핀치 확대, 비교는 core.js `sameLayout`)과 `model.method`(`CALIBRATION_METHOD`)가 같을 때만 다시 쓴다. 사이트마다 다른 페이지 확대는 실제 크기를 바꾸지 않으므로 보정을 유지한다(예전엔 탭을 바꿀 때마다 다시 보정했다). `smoothing`은 비교하지 않는다(확장 새로고침 전부터 열린 탭의 옛 core.js와 값이 달라 탭을 오갈 때마다 다시 보정했다). 시선 모델·보정 방식·기본 카메라 크기(초점거리 추정이 바뀜)를 바꾸면 `CALIBRATION_METHOD` 문자열을 바꿔 예전 보정을 버리게 한다.
 
 ## 조정 값 위치
-사용자가 바꿀 값은 모두 `config.toml`에 있다(뜻은 그 파일 주석). `[mouth]`·`[eyes]`는 `backend/gestures.py`가 읽고, `[click]`·`[select]`·`[calibration]`·`[scroll]`·`[keyboard]`·`[shortcuts]`는 서버가 `settings` 메시지로 확장에 보내 `core.js` `configure()`가 덮어쓴다. `core.js` `SETTINGS`의 숫자는 서버 값이 오기 전·테스트용 기본값이라 config.toml과 달라도 된다. 값을 하나 더 늘릴 때는 config.toml, `SETTINGS`, 쓰는 곳을 같이 고친다. 바로가기는 `SETTINGS`가 아니라 `SHORTCUTS` 배열(http/https만, 최대 9개), 내 추천 단어는 `MY_WORDS` 배열(`my_words.txt`).
+사용자가 바꿀 값은 모두 `config.toml`에 있다(뜻은 그 파일 주석). `[mouth]`·`[eyes]`는 `backend/gestures.py`, `[face]`는 `backend/tracker.py`가 읽고, `[click]`·`[select]`·`[calibration]`·`[scroll]`·`[keyboard]`·`[shortcuts]`는 서버가 `settings` 메시지로 확장에 보내 `core.js` `configure()`가 덮어쓴다. `core.js` `SETTINGS`의 숫자는 서버 값이 오기 전·테스트용 기본값이라 config.toml과 달라도 된다. 값을 하나 더 늘릴 때는 config.toml, `SETTINGS`, 쓰는 곳을 같이 고친다. 바로가기는 `SETTINGS`가 아니라 `SHORTCUTS` 배열(http/https만, 최대 9개), 내 추천 단어는 `MY_WORDS` 배열(`my_words.txt`).
 
 config.toml 밖에 있는 값:
 | 값 | 위치 |
