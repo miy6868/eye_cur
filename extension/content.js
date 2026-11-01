@@ -37,7 +37,7 @@
   // 보정을 켜면 첫 점이 (서버·모델 준비와 상관없이) 바로 한 번 작아지며 눈길을 끌고, 그 뒤 CAL.lead_ms 더 기다렸다가 첫 점 시계를 시작한다
   // 저장된 보정이 어떤 시선 모델·방식으로 만들어졌는지 표시: 둘 중 하나라도 바뀌면 예전 보정은 이어 쓰지 않고 다시 보정한다
   // (GazeTR과 UniGaze는 같은 곳을 봐도 출력 각도가 달라서, 예전 보정 계수를 그대로 쓰면 엉뚱한 곳을 가리킨다)
-  const CALIBRATION_METHOD = 'unigaze-points9';
+  const CALIBRATION_METHOD = 'unigaze-points9-720p'; // 카메라 크기가 바뀌면 초점거리 추정이 달라져 예전 보정을 버린다
   let currentContext;
   let running = false, host, shadow, model, calibration, smooth, clicker;
   let selected = null;

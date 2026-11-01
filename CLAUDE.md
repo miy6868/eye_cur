@@ -21,7 +21,7 @@
      → backend/tracker.py Tracker.read()
          MediaPipe FaceMesh(478점) → 눈 열림(EyeState)·입 벌림(MouthState)  [backend/gestures.py]
          → 얼굴 정규화(solvePnP, 224×224) → UniGaze-B ONNX (별도 스레드, int8 기본) → gaze [yaw, pitch] rad
-     → backend/server.py  WebSocket /ws  (127.0.0.1:8765, 새 카메라 프레임마다 frame 전송, 640×480 약 30fps)
+     → backend/server.py  WebSocket /ws  (127.0.0.1:8765, 새 카메라 프레임마다 frame 전송, 크기는 config.toml `camera_size`를 MJPG로 요청)
      → extension/worker.js (서비스 워커: 소켓 1개, 현재 탭 하나에만 붙임, 보정 저장)
      → extension/content.js (페이지에 주입: 보정 화면, 커서, 대상 선택, 클릭)
          순수 계산은 extension/core.js (GazeCore), DOM 후보 수집은 extension/dom.js (GazeDOM)
@@ -39,7 +39,7 @@
 | `backend/server.py` | FastAPI 서버(`/health`, `/demo`, `/ws`). 세션은 동시에 1개만. 인증(origin + `runtime.json` 토큰) 뒤 맨 먼저 `settings`를 보낸다. 보정 기록은 `logs/pursuit.jsonl`에 한 줄씩 쌓인다(config.toml `save_calibration_log = false`면 저장 안 함) |
 | `backend/tracker.py` | 카메라 프레임 → `frame` 메시지. 시선 모델은 별도 스레드라 느려도 눈·입 판정 프레임은 막히지 않는다. 눈 감는 중·얼굴 잃음 직후 250ms와 500ms 넘게 늦은 시선 결과는 버린다 |
 | `backend/gestures.py` | 눈·입 판정. 눈은 사람마다 평소 뜬 눈(80분위)을 기준으로 삼고, 눈·입 모두 문턱값 두 개로 상태가 깜빡이지 않게 한다 |
-| `backend/camera.py` | OS별 카메라 열기(Windows DSHOW / Linux V4L2)와 최신 프레임만 남기는 읽기 스레드. 시작 때 고른 카메라 번호는 `CONFIG`에만 넣고 config.toml 파일은 바꾸지 않는다 |
+| `backend/camera.py` | OS별 카메라 열기(Windows DSHOW / Linux V4L2)와 최신 프레임만 남기는 읽기 스레드. 큰 크기는 MJPG를 요청하지 않으면 YUYV로 10fps가 되는 웹캠이 있다. 시작 때 고른 카메라 번호는 `CONFIG`에만 넣고 config.toml 파일은 바꾸지 않는다 |
 | `backend/config.py`, `config.toml` | 모든 사용자 설정. config.toml은 git에 포함되고 사용자가 직접 고친다(BOM 있어도 읽음) |
 | `extension/manifest.json` | MV3. core·dom·frame.js는 모든 프레임에 자동으로 들어가고, content.js는 워커가 지금 탭에만 주입한다. `words/*.json`은 web_accessible_resources |
 | `extension/worker.js` | 서비스 워커: 서버 소켓 1개, 지금 보는 탭 하나에만 붙인다. 보정·서버 `settings`를 기억했다가 새로 붙는 탭에 넘긴다. iframe 중계, 탭 목록·전환, 실행 중 화면 꺼짐 방지 |
@@ -77,7 +77,7 @@
 - 팝업 → 워커(sender.tab 없음): `getStatus`, `start {tabId, token}`, `stop`, `recalibrate {tabId}`.
 
 저장소(`chrome.storage.local`): `pairingToken`, `showInfo`, `autoKeyboard`, `calibration {model, layout}`.
-- 저장된 보정은 `layout`(content.js `geometry()` = 창의 실제 픽셀 크기(inner × devicePixelRatio)·위치·핀치 확대, 비교는 core.js `sameLayout`)과 `model.method`(`CALIBRATION_METHOD`)가 같을 때만 다시 쓴다. 사이트마다 다른 페이지 확대는 실제 크기를 바꾸지 않으므로 보정을 유지한다(예전엔 탭을 바꿀 때마다 다시 보정했다). `smoothing`은 비교하지 않는다(확장 새로고침 전부터 열린 탭의 옛 core.js와 값이 달라 탭을 오갈 때마다 다시 보정했다). 시선 모델이나 보정 방식을 바꾸면 `CALIBRATION_METHOD` 문자열을 바꿔 예전 보정을 버리게 한다.
+- 저장된 보정은 `layout`(content.js `geometry()` = 창의 실제 픽셀 크기(inner × devicePixelRatio)·위치·핀치 확대, 비교는 core.js `sameLayout`)과 `model.method`(`CALIBRATION_METHOD`)가 같을 때만 다시 쓴다. 사이트마다 다른 페이지 확대는 실제 크기를 바꾸지 않으므로 보정을 유지한다(예전엔 탭을 바꿀 때마다 다시 보정했다). `smoothing`은 비교하지 않는다(확장 새로고침 전부터 열린 탭의 옛 core.js와 값이 달라 탭을 오갈 때마다 다시 보정했다). 시선 모델·보정 방식·기본 카메라 크기(초점거리 추정이 바뀜)를 바꾸면 `CALIBRATION_METHOD` 문자열을 바꿔 예전 보정을 버리게 한다.
 
 ## 조정 값 위치
 사용자가 바꿀 값은 모두 `config.toml`에 있다(뜻은 그 파일 주석). `[mouth]`·`[eyes]`는 `backend/gestures.py`가 읽고, `[click]`·`[select]`·`[calibration]`·`[scroll]`·`[keyboard]`·`[shortcuts]`는 서버가 `settings` 메시지로 확장에 보내 `core.js` `configure()`가 덮어쓴다. `core.js` `SETTINGS`의 숫자는 서버 값이 오기 전·테스트용 기본값이라 config.toml과 달라도 된다. 값을 하나 더 늘릴 때는 config.toml, `SETTINGS`, 쓰는 곳을 같이 고친다. 바로가기는 `SETTINGS`가 아니라 `SHORTCUTS` 배열(http/https만, 최대 9개), 내 추천 단어는 `MY_WORDS` 배열(`my_words.txt`).
