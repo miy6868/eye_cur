@@ -3,6 +3,8 @@
   globalThis.__gazeInstalled = true;
   // true: 클릭할 때마다 그 요소를 보고 있었다고 보고 시선 오프셋을 고친다(클릭 보정). 효과를 아직 측정하지 않아 기본은 끔
   const CLICK_DRIFT = false;
+  // 시연 게임용: 로컬 서버의 /demo 페이지에만 시선 좌표를 넘긴다(다른 사이트는 사용자의 시선 위치를 못 본다)
+  const DEMO_PAGE = location.origin === 'http://127.0.0.1:8765' && location.pathname.startsWith('/demo');
   const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, RateMeter, jitter, sameLayout, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = globalThis.GazeCore;
   // 조정 값(config.toml → 서버 → settings 메시지). 객체를 잡아 두면 값이 바뀌어도 새 값을 본다
   const CLICK = SETTINGS.click, CAL = SETTINGS.calibration;
@@ -510,6 +512,7 @@
     smooth = filter ? filter.update(xy) : xy;
     showDot('#raw', xy);
     showDot('#cursor', smooth);
+    if (DEMO_PAGE) window.postMessage({type: 'eye_cur:gaze', x: smooth[0], y: smooth[1]}, location.origin);
     trail.push({raw: xy, filtered: smooth, time: now});
     trail = trail.filter(p => now - p.time < GRAPH_MS);
     showJitter(now);

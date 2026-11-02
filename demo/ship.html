@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>운석 피하기</title>
+<link rel="stylesheet" href="style.css">
+<!-- 운석 피하기: 우주선이 시선의 좌우 위치를 늦게 따라간다(시선 떨림이 가려진다). 위아래는 조금만 움직인다.
+     부딪힘 판정은 그림보다 작게 잡아 시선 오차로 억울하게 죽지 않게 하고, 대신 시간이 갈수록 운석이 끝없이 빨라지고 많아진다 -->
+<div class="bar"><a class="button" href="games.html">나가기</a><span class="grow"></span><span id="fuel"></span><span id="score">0점</span></div>
+<canvas id="canvas"></canvas>
+<section class="screen" id="start">
+  <h1>🚀 운석 피하기</h1>
+  <p>우주선이 바라보는 곳을 따라 좌우로 움직여요. 운석을 피하고 ⛽ 연료를 먹으세요.<br>운석에 부딪히거나 연료가 떨어지면 끝. 갈수록 빨라집니다.</p>
+  <div class="row"><button class="button" id="play">시작</button></div>
+</section>
+<section class="screen" id="over" hidden>
+  <h1 id="result"></h1>
+  <p id="record"></p>
+  <div class="row"><button class="button" id="again">다시</button><a class="button" href="games.html">나가기</a></div>
+</section>
+<script src="gaze.js"></script>
+<script>
+  const canvas = document.querySelector('#canvas'), ctx = canvas.getContext('2d');
+  const FOLLOW = 5;        // 1초에 남은 거리의 몇 배만큼 따라가나(클수록 빠르고 떨림이 더 보인다)
+  const SHIP_HIT = 22;     // 우주선 부딪힘 반지름(그림은 약 35)
+  const VERTICAL = 40;     // 시선 위아래에 따라 움직이는 최대 폭(px)
+  const FUEL_PER_S = 7, FUEL_CAN = 35;
+  let ship, rocks, cans, stars, fuel, score, elapsed, rockIn, canIn, last, running = false;
+
+  function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+  addEventListener('resize', resize); resize();
+  stars = Array.from({length: 120}, () => ({x: Math.random(), y: Math.random(), z: 0.3 + Math.random() * 0.7}));
+
+  function start() {
+    ship = {x: canvas.width / 2, y: canvas.height * 0.8, tilt: 0};
+    rocks = []; cans = []; fuel = 100; score = 0; elapsed = 0; rockIn = 1; canIn = 3;
+    last = performance.now(); running = true;
+    document.querySelector('#start').hidden = document.querySelector('#over').hidden = true;
+    requestAnimationFrame(loop);
+  }
+  // 떨어지는 속도: 끝없이 빨라져서 결국은 피할 수 없게 된다
+  const fall = () => 160 + elapsed * 9;
+  function loop(now) {
+    if (!running) return;
+    const dt = Math.min(0.05, (now - last) / 1000); last = now; elapsed += dt;
+    const w = canvas.width, h = canvas.height;
+    const targetX = Math.min(w - 40, Math.max(40, gaze.x));
+    const move = (targetX - ship.x) * Math.min(1, dt * FOLLOW);
+    ship.x += move;
+    ship.y = h * 0.8 + Math.max(-1, Math.min(1, (gaze.y - h * 0.8) / (h * 0.4))) * VERTICAL;
+    ship.tilt += (Math.max(-0.5, Math.min(0.5, move / dt / 1500)) - ship.tilt) * Math.min(1, dt * 8);
+
+    rockIn -= dt;
+    if (rockIn <= 0) {
+      const r = 18 + Math.random() * (22 + Math.min(30, elapsed * 0.4));
+      rocks.push({x: Math.random() * w, y: -r, r, vx: (Math.random() - 0.5) * 60, speed: fall() * (0.8 + Math.random() * 0.5), spin: Math.random() * 6});
+      rockIn = Math.max(0.12, 0.9 - elapsed * 0.012) * (0.6 + Math.random() * 0.8);
+    }
+    canIn -= dt;
+    if (canIn <= 0) { cans.push({x: 40 + Math.random() * (w - 80), y: -30}); canIn = 2.5 + Math.random() * 2; }
+
+    for (const r of rocks) { r.y += r.speed * dt; r.x += r.vx * dt; r.spin += dt; }
+    for (const c of cans) c.y += fall() * 0.7 * dt;
+    fuel -= FUEL_PER_S * dt;
+    score += dt * 10 * (1 + elapsed / 30);
+    for (const c of cans) if (Math.hypot(c.x - ship.x, c.y - ship.y) < SHIP_HIT + 30) { c.got = true; fuel = Math.min(100, fuel + FUEL_CAN); score += 50; }
+    const hit = rocks.some(r => Math.hypot(r.x - ship.x, r.y - ship.y) < SHIP_HIT + r.r * 0.8);
+    rocks = rocks.filter(r => r.y < h + 60);
+    cans = cans.filter(c => !c.got && c.y < h + 40);
+    draw(dt);
+    if (hit) return end('운석에 부딪혔어요');
+    if (fuel <= 0) return end('연료가 떨어졌어요');
+    requestAnimationFrame(loop);
+  }
+  function draw(dt) {
+    const w = canvas.width, h = canvas.height;
+    ctx.fillStyle = '#020617'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#e2e8f0';
+    for (const s of stars) {
+      s.y = (s.y + dt * fall() * s.z * 0.3 / h) % 1;
+      ctx.globalAlpha = s.z; ctx.fillRect(s.x * w, s.y * h, 2 * s.z, 2 * s.z);
+    }
+    ctx.globalAlpha = 1;
+    for (const r of rocks) {
+      ctx.save(); ctx.translate(r.x, r.y); ctx.rotate(r.spin);
+      ctx.fillStyle = '#78716c'; ctx.beginPath();
+      for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2, k = r.r * (0.85 + 0.15 * Math.sin(i * 2.7 + r.r)); ctx.lineTo(Math.cos(a) * k, Math.sin(a) * k); }
+      ctx.fill();
+      ctx.fillStyle = '#57534e'; ctx.beginPath(); ctx.arc(r.r * 0.3, -r.r * 0.2, r.r * 0.25, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '44px serif';
+    for (const c of cans) ctx.fillText('⛽', c.x, c.y);
+    ctx.save(); ctx.translate(ship.x, ship.y); ctx.rotate(ship.tilt);
+    ctx.fillStyle = '#f97316'; ctx.beginPath(); ctx.moveTo(-10, 28); ctx.lineTo(0, 44 + Math.random() * 14); ctx.lineTo(10, 28); ctx.fill();
+    ctx.fillStyle = '#e2e8f0'; ctx.beginPath(); ctx.moveTo(0, -38); ctx.lineTo(26, 28); ctx.lineTo(0, 18); ctx.lineTo(-26, 28); ctx.fill();
+    ctx.fillStyle = '#38bdf8'; ctx.beginPath(); ctx.arc(0, -6, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // 연료 막대: 우주선 바로 아래에 두어 눈을 떼지 않고 볼 수 있게 한다
+    ctx.fillStyle = '#334155'; ctx.fillRect(ship.x - 40, ship.y + 58, 80, 8);
+    ctx.fillStyle = fuel < 30 ? '#ef4444' : '#22c55e'; ctx.fillRect(ship.x - 40, ship.y + 58, 80 * Math.max(0, fuel) / 100, 8);
+    document.querySelector('#score').textContent = `${Math.floor(score)}점`;
+    document.querySelector('#fuel').textContent = `⛽ ${Math.max(0, Math.round(fuel))}%`;
+  }
+  function end(why) {
+    running = false;
+    document.querySelector('#result').textContent = `${Math.floor(score)}점`;
+    document.querySelector('#record').textContent = `${why} · 최고 ${best('ship', Math.floor(score))}점 · ${Math.round(elapsed)}초 비행`;
+    document.querySelector('#over').hidden = false;
+  }
+  document.querySelector('#play').onclick = document.querySelector('#again').onclick = start;
+</script>
+</html>

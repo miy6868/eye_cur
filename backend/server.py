@@ -8,7 +8,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.config import CONFIG
 
@@ -47,11 +47,6 @@ async def health():
     from backend.tracker import model_path
     return {"ok": True, "model": "UniGaze-B", "device": "cpu", "active": active,
             "weights": model_path().exists()}
-
-
-@app.get("/demo")
-async def demo():
-    return FileResponse(ROOT / "demo.html")
 
 
 @app.websocket("/ws")
@@ -137,6 +132,9 @@ async def socket(ws: WebSocket):
         with contextlib.suppress(Exception):
             await ws.close()
 
+
+# 시연 페이지(첫 화면·테스트·게임). /demo는 /demo/로 넘어가 index.html을 연다
+app.mount("/demo", StaticFiles(directory=ROOT / "demo", html=True), name="demo")
 
 if __name__ == "__main__":
     from backend.camera import choose_camera

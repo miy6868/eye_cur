@@ -36,7 +36,7 @@
 ## 파일 지도
 | 파일 | 역할 · 코드만 봐선 모르는 것 |
 |---|---|
-| `backend/server.py` | FastAPI 서버(`/health`, `/demo`, `/ws`). 세션은 동시에 1개만. 인증(origin + `runtime.json` 토큰) 뒤 맨 먼저 `settings`를 보낸다. 보정 기록은 `logs/pursuit.jsonl`에 한 줄씩 쌓인다(config.toml `save_calibration_log = false`면 저장 안 함) |
+| `backend/server.py` | FastAPI 서버(`/health`, `/demo/`(`demo/` 폴더 그대로), `/ws`). 세션은 동시에 1개만. 인증(origin + `runtime.json` 토큰) 뒤 맨 먼저 `settings`를 보낸다. 보정 기록은 `logs/pursuit.jsonl`에 한 줄씩 쌓인다(config.toml `save_calibration_log = false`면 저장 안 함) |
 | `backend/tracker.py` | 카메라 프레임 → `frame` 메시지. 시선 모델은 별도 스레드라 느려도 눈·입 판정 프레임은 막히지 않는다. 눈 감는 중·얼굴 잃음 직후 250ms와 500ms 넘게 늦은 시선 결과는 버린다. 얼굴을 여러 개 찾고 `FaceLock`이 사용자 얼굴을 고른다(처음엔 가장 큰 얼굴, 이후 같은 자리 얼굴, 훨씬 작은 뒷사람은 무시). 사람이 바뀌면 얼굴 잃음과 같이 입·눈 상태를 끊는다 |
 | `backend/gestures.py` | 눈·입 판정. 눈은 사람마다 평소 뜬 눈(80분위)을 기준으로 삼고, 눈·입 모두 문턱값 두 개로 상태가 깜빡이지 않게 한다 |
 | `backend/camera.py` | OS별 카메라 열기(Windows DSHOW / Linux V4L2)와 최신 프레임만 남기는 읽기 스레드. 큰 크기는 MJPG를 요청하지 않으면 YUYV로 10fps가 되는 웹캠이 있다. Windows DSHOW는 크기를 바꾸면 형식이 되돌아가 MJPG를 크기 뒤에 다시 요청해야 한다. 시작 때 고른 카메라 번호는 `CONFIG`에만 넣고 config.toml 파일은 바꾸지 않는다 |
@@ -51,7 +51,7 @@
 | `extension/words/ko.json`, `en.json` | 추천 단어(빈도순). `scripts/build_words.py`로 생성, CC-BY-SA 4.0 |
 | `my_words.txt` | 사용자가 직접 넣는 추천 단어(한 줄에 하나, `#` 뒤 무시). 서버가 `settings.words`로 보내고 content.js가 빈도 목록 끝에 붙인다(우선순위 없이 같은 단어 취급, 사용자 요청). 한글이 있으면 한글 키보드용. ANSI로 저장돼 못 읽으면 연결은 유지하고 빈 목록 |
 | `extension/popup.html`, `popup.js` | 토큰 입력, 시작/다시 보정/중지, 상태, 스위치 두 개(정보 표시, 키보드 자동 표시) |
-| `demo.html` | 시연·테스트 페이지(`/demo`) |
+| `demo/` | 시연 페이지(`/demo`). `index.html` 첫 화면(테스트 \| 게임), `test.html` 기능 점검(예전 demo.html), `games.html` 목록, `ghost`·`ship`·`mole.html` 게임. `gaze.js`가 content.js가 보내는 시선 좌표(없으면 마우스)를 받는다. 두더지만 확장의 대상 선택·입 클릭을 쓰고, 나머지는 클릭 없이 좌표만 쓴다 |
 | `vendor/unigaze.py` | UniGaze-B를 torch만으로 다시 쓴 것. 설치 때 ONNX 변환에만 쓴다 |
 | `scripts/` | `download_models.py`(가중치 → ONNX), `build_words.py`(추천 단어), `check_cpu.py`(카메라 없이 모델 점검, setup.ps1 마지막에 실행), `check_camera.py`(카메라·얼굴·시선 확인) |
 | `setup.*`, `start.*` | uv로 Python 3.11 venv·CPU torch·requirements·모델 변환 / 서버 실행 |
@@ -61,7 +61,7 @@
 |---|---|
 | `tests/core.test.cjs` | core.js 전부(클릭 판정·메뉴용 long, 회귀, 필터, 선택기, 보정 순서·중앙값, 드리프트, 눈 크기, 추천, 조합 글자 바꾸기, 스크롤 속도) |
 | `tests/worker.test.cjs` | worker.js를 가짜 `chrome`·WebSocket·타이머로 `vm`에서 실행(`harness()`). 탭 전환, 재연결, 보정 저장/폐기, 초점 처리, iframe 중계, 탭 고르기(`listTabs`/`switchTab`) |
-| `tests/test_backend.py` | `/health`, `/demo`, 소켓 인증·정리·처음 `settings`, 보정 기록 저장 |
+| `tests/test_backend.py` | `/health`, `/demo` 페이지들, 소켓 인증·정리·처음 `settings`, 보정 기록 저장 |
 | `tests/test_face_lock.py` | 여러 얼굴 중 사용자 얼굴 고르기(가장 큰 얼굴, 따라가기, 뒷사람 무시, 잊기) |
 | `tests/test_gestures.py`, `test_normalization.py`, `test_tracker_async.py`, `test_camera.py` | 눈·입 판정, 얼굴 정규화·머리 각도·텐서, 느린 모델이 눈 프레임을 막지 않는지, 카메라 선택 |
 
@@ -74,6 +74,7 @@
 워커 ↔ 페이지 (`chrome.tabs.sendMessage` / `runtime.sendMessage`, 모두 `context`(UUID)로 오래된 페이지 메시지를 거른다)
 - 워커 → 페이지: `start {context, calibration, settings}`(워커가 기억한 마지막 `settings`), `suspend`, 그리고 서버 메시지(`settings`, `status`, `frame`)를 맨 위 프레임(`frameId: 0`)에만 그대로 전달. `frame`은 페이지가 처리를 마치고 답해야 다음 것을 보내고, 그 사이 온 것은 최신 하나만 남긴다(느린 페이지에서 몇 초 전 시선이 쌓였다). 그래서 content.js는 처리한 **뒤에** 답한다.
 - 페이지 → 워커: `calibrated {model, layout}`, `calibrationInvalid`, `recalibrate`, `calibrationLog`, `uiStatus`, `stop {reason}`, `listTabs`(→ 이 창의 http/https 탭 `[{id, title, url, active}]`), `switchTab {tabId}`(→ true/false), `frameRelay {frameId, request}`(request는 `frameCollect {x, y, radius}` → 후보 배열, `frameClick {id}` → true/false만 허용).
+- content.js → 페이지: `http://127.0.0.1:8765/demo…` 페이지에만 필터를 거친 시선 좌표를 `window.postMessage({type:'eye_cur:gaze', x, y})`로 보낸다(다른 사이트는 시선 위치를 못 보게). 입을 벌리는 동안·시선을 잃었을 때는 보내지 않는다.
 - 워커 → frame.js: `frameRelay`의 request를 그대로 해당 `frameId`에만 보낸다. 워커가 탭 전체로 보내는 다른 메시지에는 frame.js가 답하지 않는다.
 - 팝업 → 워커(sender.tab 없음): `getStatus`, `start {tabId, token}`, `stop`, `recalibrate {tabId}`.
 

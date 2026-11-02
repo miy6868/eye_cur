@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>두더지 잡기</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* 구멍은 큰 버튼 6개: 확장의 대상 선택(초록 테두리)과 입 클릭이 그대로 쓰인다 */
+  .holes { height: 100%; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr 1fr; gap: 4vw; padding: 14vh 6vw 10vh; }
+  .hole { border: 3px solid #334155; border-radius: 50% / 40%; background: radial-gradient(ellipse at 50% 70%, #1c1917 0 45%, #292524 46%); font-size: min(14vh, 10vw); cursor: pointer; color: inherit; }
+  .hole.hit { background: radial-gradient(ellipse at 50% 70%, #422006 0 45%, #292524 46%); }
+  #time { width: 30vw; height: 14px; border-radius: 7px; background: #334155; overflow: hidden; }
+  #time div { height: 100%; background: #22c55e; }
+</style>
+<!-- 두더지 잡기: 입 클릭은 1초 남짓 걸리므로 두더지가 오래(2초 넘게) 나와 있고, 들어간 직후에 눌러도 잡은 것으로 친다 -->
+<div class="bar"><a class="button" href="games.html">나가기</a><span class="grow"></span><div id="time"><div></div></div><span id="score">0마리</span></div>
+<main class="holes"></main>
+<section class="screen" id="start">
+  <h1>🐹 두더지 잡기</h1>
+  <p>두더지가 나온 구멍을 바라보고 입을 벌렸다 다물어 잡으세요(마우스로 눌러도 돼요).<br>60초 동안 몇 마리 잡을까요? 갈수록 빨리 숨어요.</p>
+  <div class="row"><button class="button" id="play">시작</button></div>
+</section>
+<section class="screen" id="over" hidden>
+  <h1 id="result"></h1>
+  <p id="record"></p>
+  <div class="row"><button class="button" id="again">다시</button><a class="button" href="games.html">나가기</a></div>
+</section>
+<script src="gaze.js"></script>
+<script>
+  const GAME_MS = 60000;
+  const GRACE_MS = 800;  // 숨은 뒤에도 이만큼은 잡은 것으로 친다(입을 다무는 사이 숨어 버리는 일)
+  const holes = Array.from({length: 6}, () => Object.assign(document.createElement('button'), {className: 'hole'}));
+  document.querySelector('.holes').append(...holes);
+  let score, missed, started, mole, timer, running = false;
+
+  // 나와 있는 시간: 3초에서 시작해 끝날 무렵 1.8초까지 줄어든다
+  const upTime = () => 3000 - 1200 * Math.min(1, (performance.now() - started) / GAME_MS);
+  function show() {
+    if (!running) return;
+    const choices = holes.filter(h => h !== mole?.hole);
+    mole = {hole: choices[Math.floor(Math.random() * choices.length)], until: performance.now() + upTime(), caught: false};
+    mole.hole.textContent = '🐹';
+    timer = setTimeout(hide, mole.until - performance.now());
+  }
+  function hide() {
+    if (!mole.caught) { missed++; mole.hole.textContent = ''; }
+    timer = setTimeout(show, GRACE_MS + Math.random() * 400); // 늦게 누른 것을 받을 수 있게 다음 두더지는 GRACE_MS 뒤에
+  }
+  for (const hole of holes) hole.onclick = () => {
+    if (!running || !mole || hole !== mole.hole || mole.caught || performance.now() > mole.until + GRACE_MS) return;
+    mole.caught = true; score++;
+    if (performance.now() > mole.until) missed--; // hide()가 이미 놓친 것으로 셌다
+    hole.textContent = '💥'; hole.classList.add('hit');
+    setTimeout(() => { hole.classList.remove('hit'); if (hole.textContent === '💥') hole.textContent = ''; }, 500);
+    // 잡으면 바로 다음 두더지(이미 숨은 뒤 잡은 경우는 다음 것이 예약돼 있다)
+    if (performance.now() < mole.until) { clearTimeout(timer); timer = setTimeout(show, 500); }
+    document.querySelector('#score').textContent = `${score}마리`;
+  };
+  function tick() {
+    if (!running) return;
+    const left = 1 - (performance.now() - started) / GAME_MS;
+    document.querySelector('#time div').style.width = `${Math.max(0, left) * 100}%`;
+    if (left <= 0) return end();
+    requestAnimationFrame(tick);
+  }
+  function start() {
+    score = 0; missed = 0; started = performance.now(); mole = null; running = true;
+    for (const hole of holes) hole.textContent = '';
+    document.querySelector('#score').textContent = '0마리';
+    document.querySelector('#start').hidden = document.querySelector('#over').hidden = true;
+    timer = setTimeout(show, 800);
+    tick();
+  }
+  function end() {
+    running = false; clearTimeout(timer);
+    for (const hole of holes) hole.textContent = '';
+    document.querySelector('#result').textContent = `${score}마리`;
+    document.querySelector('#record').textContent = `놓친 두더지 ${missed}마리 · 최고 ${best('mole', score)}마리`;
+    document.querySelector('#over').hidden = false;
+  }
+  document.querySelector('#play').onclick = document.querySelector('#again').onclick = start;
+</script>
+</html>

@@ -13,3 +13,4 @@
 | [gestures.md](gestures.md) | 눈·입 판정 문턱값 |
 | [selection.md](selection.md) | 대상 후보, 선택, 클릭 취소, iframe |
 | [keyboard.md](keyboard.md) | 가상 키보드, 한글 조합 라이브러리, 추천 단어 |
+| [demo-games.md](demo-games.md) | 시연 게임 설계(시선 오차·느린 클릭에 맞춘 규칙) |

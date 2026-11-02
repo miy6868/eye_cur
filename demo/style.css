@@ -1,0 +1,29 @@
+/* 첫 화면·게임 목록·게임이 같이 쓰는 모양. 시선은 정밀하지 않으므로 누를 것은 모두 크게 만든다 */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: #0f172a; color: #f8fafc; font: 18px/1.5 system-ui, sans-serif; overflow: hidden; }
+a { color: inherit; text-decoration: none; }
+/* 큰 선택 사각형: 첫 화면(테스트 | 게임)과 게임 목록 */
+.choices { height: 100%; display: flex; gap: 4vw; padding: 8vh 6vw 14vh; }
+.choice {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  border: 3px solid #334155; border-radius: 28px; background: #1e293b; cursor: pointer;
+  font-size: clamp(32px, 5vw, 64px); font-weight: 700; transition: background .2s, border-color .2s;
+}
+.choice:hover { background: #334155; border-color: #94a3b8; }
+.choice small { font-size: 18px; font-weight: 400; color: #cbd5e1; text-align: center; padding: 0 16px; }
+.choice .icon { font-size: 1.6em; line-height: 1; }
+/* 게임 위쪽 띠: 점수와 나가기 */
+.bar { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 24px; padding: 12px 20px; z-index: 2; font-size: 22px; font-weight: 600; pointer-events: none; }
+.bar > * { pointer-events: auto; }
+.bar .grow { flex: 1; }
+.button { display: inline-flex; align-items: center; justify-content: center; min-width: 160px; height: 72px; padding: 0 28px; border: 2px solid #475569; border-radius: 18px; background: #1e293b; color: inherit; font: 700 24px system-ui, sans-serif; cursor: pointer; }
+.button:hover { background: #334155; }
+/* 시작·끝 화면 */
+.screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; background: #0f172acc; z-index: 3; text-align: center; padding: 0 8vw; }
+.screen[hidden] { display: none; }
+.screen h1 { margin: 0; font-size: 56px; }
+.screen p { margin: 0; font-size: 22px; color: #cbd5e1; }
+.screen .row { display: flex; gap: 6vw; }
+.screen .row .button { min-width: 260px; height: 120px; font-size: 32px; }
+canvas { display: block; }

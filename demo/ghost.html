@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>유령 쫓기</title>
+<link rel="stylesheet" href="style.css">
+<!-- 유령 쫓기: 가장자리에서 집으로 다가오는 유령을 바라보면 녹는다. 클릭이 없고, 유령 근처만 봐도 되게 판정을 넓게 둔다 -->
+<div class="bar"><a class="button" href="games.html">나가기</a><span class="grow"></span><span id="lives"></span><span id="score">0점</span></div>
+<canvas id="canvas"></canvas>
+<section class="screen" id="start">
+  <h1>👻 유령 쫓기</h1>
+  <p>유령이 가운데 집으로 다가옵니다. 유령을 바라보면 녹아 사라져요.<br>울타리에 세 번 닿으면 끝. 갈수록 많아지고 빨라집니다.</p>
+  <div class="row"><button class="button" id="play">시작</button></div>
+</section>
+<section class="screen" id="over" hidden>
+  <h1 id="result"></h1>
+  <p id="record"></p>
+  <div class="row"><button class="button" id="again">다시</button><a class="button" href="games.html">나가기</a></div>
+</section>
+<script src="gaze.js"></script>
+<script>
+  const canvas = document.querySelector('#canvas'), ctx = canvas.getContext('2d');
+  const MELT_S = 0.45;      // 바라보기 시작해서 다 녹을 때까지
+  const LOOK_MARGIN = 80;   // 유령 둘레 밖으로 이만큼까지 바라본 것으로 친다(시선 오차)
+  const HOME_R = 60;
+  // 유령은 이 울타리에 닿으면 집을 해친다. 울타리가 시선 판정(유령 둘레 + LOOK_MARGIN)보다 넓어서 집만 보고 버틸 수는 없다
+  const FENCE = 150;
+  let ghosts, lives, score, elapsed, spawnIn, last, running = false, hurt = 0;
+
+  function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+  addEventListener('resize', resize); resize();
+
+  function start() {
+    ghosts = []; lives = 3; score = 0; elapsed = 0; spawnIn = 1; last = performance.now(); running = true;
+    document.querySelector('#start').hidden = document.querySelector('#over').hidden = true;
+    requestAnimationFrame(loop);
+  }
+  function spawn() {
+    // 화면 둘레의 아무 곳에서 나온다. 위쪽 띠(나가기 버튼) 근처는 피한다
+    const w = canvas.width, h = canvas.height, side = Math.floor(Math.random() * 4), t = Math.random();
+    const [x, y] = [[t * w, 110], [w + 40, 110 + t * (h - 110)], [t * w, h + 40], [-40, 110 + t * (h - 110)]][side];
+    const r = 34 + Math.random() * 20;
+    ghosts.push({x, y, r, hp: 1, speed: (60 + elapsed * 2.5) * (0.8 + Math.random() * 0.4), wobble: Math.random() * 6});
+  }
+  function loop(now) {
+    if (!running) return;
+    const dt = Math.min(0.05, (now - last) / 1000); last = now; elapsed += dt;
+    const cx = canvas.width / 2, cy = canvas.height / 2;
+    spawnIn -= dt;
+    if (spawnIn <= 0) { spawn(); spawnIn = Math.max(0.35, 2.2 - elapsed * 0.035); }
+    for (const g of ghosts) {
+      const dx = cx - g.x, dy = cy - g.y, d = Math.hypot(dx, dy);
+      g.x += dx / d * g.speed * dt; g.y += dy / d * g.speed * dt;
+      g.looked = Math.hypot(gaze.x - g.x, gaze.y - g.y) < g.r + LOOK_MARGIN;
+      if (g.looked) g.hp -= dt / MELT_S;
+      if (g.hp <= 0) { g.dead = true; score++; }
+      else if (d < FENCE) { g.dead = true; lives--; hurt = 0.4; }
+    }
+    ghosts = ghosts.filter(g => !g.dead);
+    hurt = Math.max(0, hurt - dt);
+    draw(now, cx, cy);
+    if (lives <= 0) return end();
+    requestAnimationFrame(loop);
+  }
+  function draw(now, cx, cy) {
+    ctx.fillStyle = hurt ? '#450a0a' : '#0f172a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `${HOME_R * 1.6}px serif`; ctx.fillText('🏠', cx, cy);
+    ctx.setLineDash([10, 12]); ctx.strokeStyle = hurt ? '#f87171' : '#475569'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx, cy, FENCE, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    for (const g of ghosts) {
+      ctx.globalAlpha = 0.25 + 0.75 * g.hp;
+      const size = g.r * 2 * (0.5 + 0.5 * g.hp);
+      ctx.font = `${size}px serif`;
+      ctx.fillText('👻', g.x, g.y + Math.sin(now / 300 + g.wobble) * 6);
+      if (g.looked) { // 녹는 중이라는 표시: 유령 둘레에 빛
+        ctx.globalAlpha = 0.5; ctx.strokeStyle = '#fde047'; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(g.x, g.y, g.r + 10, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+    document.querySelector('#score').textContent = `${score}점`;
+    document.querySelector('#lives').textContent = '❤️'.repeat(lives);
+  }
+  function end() {
+    running = false;
+    document.querySelector('#result').textContent = `${score}점`;
+    document.querySelector('#record').textContent = `최고 ${best('ghost', score)}점 · ${Math.round(elapsed)}초 버팀`;
+    document.querySelector('#over').hidden = false;
+  }
+  document.querySelector('#play').onclick = document.querySelector('#again').onclick = start;
+</script>
+</html>
