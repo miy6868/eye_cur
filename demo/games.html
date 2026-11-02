@@ -4,111 +4,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>게임</title>
 <link rel="stylesheet" href="style.css">
-<div class="backdrop"></div>
+<!-- 줄마다 실제 게임 화면(img/)을 보여 준다. 그림을 바꾸려면 게임을 캡처해 같은 이름으로 덮어쓴다 -->
 <div class="page">
-  <header class="top">
-    <a class="pill exit" href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>처음으로</a>
-  </header>
-  <div class="headline">
-    <h1>게임 고르기</h1>
-    <p>모두 시선으로 합니다. 정밀하게 조준하지 않아도 되도록 만들었어요.</p>
-  </div>
-  <main class="cards">
-    <a class="card" href="ghost.html" style="--tint:#fbbf77; --glow:rgba(251,191,119,.5)">
-      <svg class="art" viewBox="0 0 400 600" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
-        <defs>
-          <linearGradient id="night" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#02040b"/><stop offset=".6" stop-color="#0b1a2c"/><stop offset="1" stop-color="#13263a"/></linearGradient>
-          <radialGradient id="moon"><stop offset="0" stop-color="#e0e7ff" stop-opacity=".5"/><stop offset="1" stop-color="#e0e7ff" stop-opacity="0"/></radialGradient>
-          <radialGradient id="ghostGlow"><stop offset="0" stop-color="#bfdbfe" stop-opacity=".6"/><stop offset="1" stop-color="#bfdbfe" stop-opacity="0"/></radialGradient>
-          <linearGradient id="ghostBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f1f5ff"/><stop offset=".7" stop-color="#dbe5ff" stop-opacity=".75"/><stop offset="1" stop-color="#dbe5ff" stop-opacity="0"/></linearGradient>
-          <radialGradient id="lantern"><stop offset="0" stop-color="#ffd59a" stop-opacity=".8"/><stop offset="1" stop-color="#ff9f43" stop-opacity="0"/></radialGradient>
-        </defs>
-        <rect width="400" height="600" fill="url(#night)"/>
-        <g class="stars" data-height="300"></g>
-        <circle cx="85" cy="70" r="120" fill="url(#moon)"/><circle cx="85" cy="70" r="24" fill="#eef2ff"/>
-        <path transform="translate(0 -110)" d="M0 400 L30 330 L45 360 L70 300 L95 365 L120 320 L150 380 L180 310 L210 370 L240 330 L270 385 L300 300 L330 360 L360 320 L400 370 V600 H0Z" fill="#0d1b2c"/>
-        <path transform="translate(0 -110)" d="M0 470 L20 380 L40 430 L60 350 L85 440 L330 460 L350 370 L372 420 L400 350 V600 H0Z" fill="#050b14"/>
-        <circle cx="200" cy="330" r="110" fill="url(#lantern)"/>
-        <g transform="translate(-10 -125)">
-          <circle cx="200" cy="250" r="110" fill="url(#ghostGlow)"/>
-          <path d="M150 260a50 50 0 0 1 100 0v55l-12 -10 -14 14 -12 -12 -12 14 -12 -12 -14 14 -12 -12 -12 10z" fill="url(#ghostBody)"/>
-          <ellipse cx="183" cy="252" rx="7" ry="11" fill="#0b1020"/><ellipse cx="215" cy="252" rx="7" ry="11" fill="#0b1020"/><ellipse cx="200" cy="278" rx="5" ry="7" fill="#0b1020"/>
-        </g>
-      </svg>
-      <span class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-      <span class="tag">NIGHT WATCH</span>
-      <h2>유령 쫓기</h2>
-      <p>등불로 다가오는 유령을 바라봐서 태우세요.</p>
-      <div class="meta"><span class="chip">시선만</span><span class="chip best" data-game="ghost"></span></div>
+  <a class="back" href="index.html">← 처음으로</a>
+  <main class="list">
+    <a class="row" href="ghost.html">
+      <img src="img/ghost.jpg" alt="">
+      <div>
+        <h2>유령 쫓기</h2>
+        <p>가운데 등불로 다가오는 유령을 바라보면 타서 사라집니다. 클릭은 없습니다.</p>
+        <div class="best" data-game="ghost"></div>
+      </div>
     </a>
-    <a class="card" href="ship.html" style="--tint:#7dd3fc; --glow:rgba(125,211,252,.5)">
-      <svg class="art" viewBox="0 0 400 600" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
-        <defs>
-          <radialGradient id="space" cx="40%" cy="30%" r="90%"><stop offset="0" stop-color="#1e1b5e"/><stop offset=".5" stop-color="#0a0a24"/><stop offset="1" stop-color="#03030b"/></radialGradient>
-          <radialGradient id="nebA" cx="80%" cy="20%" r="50%"><stop offset="0" stop-color="#22d3ee" stop-opacity=".35"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></radialGradient>
-          <radialGradient id="nebB" cx="15%" cy="70%" r="50%"><stop offset="0" stop-color="#a855f7" stop-opacity=".35"/><stop offset="1" stop-color="#a855f7" stop-opacity="0"/></radialGradient>
-          <linearGradient id="hull" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#64748b"/><stop offset=".45" stop-color="#f8fafc"/><stop offset="1" stop-color="#3f4a5c"/></linearGradient>
-          <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff7d6"/><stop offset=".4" stop-color="#fb923c"/><stop offset="1" stop-color="#fb923c" stop-opacity="0"/></linearGradient>
-          <radialGradient id="rock" cx="35%" cy="30%"><stop offset="0" stop-color="#c8b8a6"/><stop offset=".5" stop-color="#6f645a"/><stop offset="1" stop-color="#1f1b18"/></radialGradient>
-        </defs>
-        <rect width="400" height="600" fill="url(#space)"/>
-        <rect width="400" height="600" fill="url(#nebA)"/><rect width="400" height="600" fill="url(#nebB)"/>
-        <g class="stars"></g>
-        <path transform="translate(-30 -20)" d="M290 120c18-6 34 6 36 22s-10 32-28 34-34-8-36-24 10-26 28-32z" fill="url(#rock)"/>
-        <path transform="translate(0 -110)" d="M80 230c12-4 22 4 24 14s-6 20-18 22-22-6-23-16 6-16 17-20z" fill="url(#rock)"/>
-        <g transform="translate(200 150) scale(.75)">
-          <path d="M-12 40 L0 130 L12 40Z" fill="url(#flame)"/>
-          <path d="M0 -10 L58 40 L54 54 L14 46 H-14 L-54 54 L-58 40Z" fill="#94a3b8"/>
-          <path d="M0 -70C14 -50 21 -10 20 44H-20C-21 -10 -14 -50 0 -70Z" fill="url(#hull)"/>
-          <ellipse cy="-26" rx="9" ry="18" fill="#38bdf8"/>
-        </g>
-      </svg>
-      <span class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-      <span class="tag">DEEP SPACE RUN</span>
-      <h2>운석 피하기</h2>
-      <p>우주선이 시선을 따라갑니다. 운석을 피하고 연료를 모으세요.</p>
-      <div class="meta"><span class="chip">시선만</span><span class="chip best" data-game="ship"></span></div>
+    <a class="row" href="ship.html">
+      <img src="img/ship.jpg" alt="">
+      <div>
+        <h2>운석 피하기</h2>
+        <p>우주선이 바라보는 쪽으로 움직입니다. 운석을 피하고 연료통을 모으세요.</p>
+        <div class="best" data-game="ship"></div>
+      </div>
     </a>
-    <a class="card" href="mole.html" style="--tint:#fcd34d; --glow:rgba(252,211,77,.5)">
-      <svg class="art" viewBox="0 0 400 600" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
-        <defs>
-          <linearGradient id="dusk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b3b74"/><stop offset=".12" stop-color="#c9785e"/><stop offset=".2" stop-color="#ffd49a"/><stop offset=".21" stop-color="#b9a85a"/><stop offset=".5" stop-color="#5f8a34"/><stop offset="1" stop-color="#2d5520"/></linearGradient>
-          <radialGradient id="sun" cx="70%" cy="16%" r="40%"><stop offset="0" stop-color="#fff1d0" stop-opacity=".9"/><stop offset="1" stop-color="#ffd49a" stop-opacity="0"/></radialGradient>
-          <radialGradient id="fur" cx="35%" cy="25%"><stop offset="0" stop-color="#b07a55"/><stop offset=".6" stop-color="#6b4329"/><stop offset="1" stop-color="#2c1a0e"/></radialGradient>
-          <radialGradient id="soil" cx="60%" cy="20%"><stop offset="0" stop-color="#b07a4a"/><stop offset="1" stop-color="#3d2614"/></radialGradient>
-        </defs>
-        <rect width="400" height="600" fill="url(#dusk)"/>
-        <rect width="400" height="600" fill="url(#sun)"/>
-        <path transform="translate(0 -150)" d="M0 250 Q100 220 200 245 T400 240 V285 H0Z" fill="#8d6b55" opacity=".8"/>
-        <path transform="translate(0 -150)" d="M0 270 Q120 255 240 272 T400 268 V290 H0Z" fill="#4c5a30"/>
-        <g transform="translate(0 -225)">
-        <ellipse cx="200" cy="420" rx="130" ry="50" fill="url(#soil)"/>
-        <ellipse cx="200" cy="410" rx="88" ry="26" fill="#120804"/>
-        <path d="M128 410 Q130 300 200 296 Q270 300 272 410Z" fill="url(#fur)"/>
-        <circle cx="181" cy="340" r="7" fill="#120a05"/><circle cx="219" cy="340" r="7" fill="#120a05"/>
-        <circle cx="179" cy="337" r="2.2" fill="#fff"/><circle cx="217" cy="337" r="2.2" fill="#fff"/>
-        <ellipse cx="200" cy="362" rx="24" ry="16" fill="#f1c9aa"/><ellipse cx="200" cy="354" rx="11" ry="7.5" fill="#e2557a"/>
-        <path d="M128 410 A72 22 0 0 0 272 410 L330 420 A130 50 0 0 1 70 420Z" fill="#7a4f2c"/>
-        <ellipse cx="166" cy="414" rx="13" ry="7" fill="#e6b896"/><ellipse cx="234" cy="414" rx="13" ry="7" fill="#e6b896"/>
-        </g>
-      </svg>
-      <span class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-      <span class="tag">GOLDEN HOUR</span>
-      <h2>두더지 잡기</h2>
-      <p>두더지를 바라보고 입을 벌렸다 다물어 잡으세요.</p>
-      <div class="meta"><span class="chip">시선 + 입 클릭</span><span class="chip best" data-game="mole"></span></div>
+    <a class="row" href="mole.html">
+      <img src="img/mole.jpg" alt="">
+      <div>
+        <h2>두더지 잡기</h2>
+        <p>두더지가 나온 구멍을 바라보고 입을 벌렸다 다물어 잡습니다.</p>
+        <div class="best" data-game="mole"></div>
+      </div>
     </a>
   </main>
 </div>
 <script>
-  for (const group of document.querySelectorAll('.stars')) {
-    const height = Number(group.dataset.height) || 600;
-    group.innerHTML = Array.from({length: 60}, () => `<circle cx="${Math.random() * 400}" cy="${Math.random() * height}" r="${(Math.random() ** 3 * 1.8 + .4).toFixed(2)}" fill="#fff" opacity="${(Math.random() * .7 + .2).toFixed(2)}"/>`).join('');
-  }
   // 이 브라우저에 남은 최고 기록
-  for (const chip of document.querySelectorAll('.chip.best')) {
-    const score = Number(localStorage.getItem(`eye_cur:best:${chip.dataset.game}`)) || 0;
-    if (score) chip.textContent = `최고 ${score.toLocaleString()}`; else chip.remove();
+  for (const line of document.querySelectorAll('.best')) {
+    const score = Number(localStorage.getItem(`eye_cur:best:${line.dataset.game}`)) || 0;
+    line.textContent = score ? `최고 기록 ${score.toLocaleString()}` : '';
   }
 </script>
 </html>

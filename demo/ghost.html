@@ -5,44 +5,40 @@
 <title>유령 쫓기</title>
 <link rel="stylesheet" href="style.css">
 <style>
-  body { --tint: #fbbf77; --tint2: #fde68a; --tint-glow: rgba(251, 191, 119, .45); }
   .flames { display: inline-flex; gap: 4px; }
-  .flames svg { width: 20px; height: 26px; color: #fbbf77; filter: drop-shadow(0 0 6px rgba(251, 191, 119, .8)); transition: opacity .3s, filter .3s; }
-  .flames svg.out { opacity: .2; filter: none; }
+  .flames svg { width: 16px; height: 22px; color: #fbbf77; }
+  .flames svg.out { opacity: .25; }
 </style>
 <!-- 유령 쫓기: 가장자리에서 등불로 다가오는 유령을 바라보면 탄다. 클릭이 없고, 유령 근처만 봐도 되게 판정을 넓게 둔다 -->
 <canvas id="canvas"></canvas>
 <div class="hud">
-  <a class="pill exit" href="games.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>목록</a>
+  <a class="stat exit" href="games.html">← 목록</a>
   <span class="grow"></span>
-  <span class="pill"><small>LIGHT</small><span class="flames" id="flames"></span></span>
-  <span class="pill"><small>TIME</small><span id="time">0</span></span>
-  <span class="pill"><small>SCORE</small><span id="score">0</span></span>
+  <span class="stat">등불 <span class="flames" id="flames"></span></span>
+  <span class="stat">시간 <b id="time">0</b></span>
+  <span class="stat">점수 <b id="score">0</b></span>
 </div>
 <div class="banner" id="banner" hidden></div>
 <div class="banner" id="notice" hidden><div>시선을 찾는 중<small>화면을 바라보고 입을 다물면 이어집니다</small></div></div>
 <section class="screen" id="start">
   <div class="panel">
-    <p class="kicker">NIGHT WATCH</p>
     <h1>유령 쫓기</h1>
-    <p class="lead">안개 낀 숲에서 유령들이 등불을 노립니다. 당신의 시선은 빛이에요. 바라보는 유령은 타서 사라집니다.</p>
-    <ul class="howto">
-      <li><b>시선</b>유령을 바라보면 소멸</li>
-      <li><b>콤보</b>연달아 없애면 점수 배로</li>
-      <li><b>등불</b>울타리에 세 번 닿으면 꺼짐</li>
+    <p>유령들이 가운데 등불로 다가옵니다. 바라보고 있으면 유령이 타서 사라집니다.</p>
+    <ul class="rules">
+      <li>1.5초 안에 연달아 없애면 점수가 배로 늘어납니다.</li>
+      <li>유령이 점선 안으로 들어오면 등불이 하나 꺼집니다.</li>
+      <li>등불 세 개가 다 꺼지면 끝납니다.</li>
     </ul>
-    <div class="actions"><button class="cta" id="play">시작하기</button></div>
-    <p class="record" id="startBest"></p>
+    <div class="actions"><button class="cta" id="play">시작</button></div>
+    <p id="startBest"></p>
   </div>
 </section>
 <section class="screen" id="over" hidden>
   <div class="panel">
-    <p class="kicker">THE LIGHT WENT OUT · 등불이 꺼졌습니다</p>
-    <div class="bigscore" id="final">0</div>
-    <span class="newbest" id="newbest" hidden>NEW RECORD</span>
-    <div class="stats" id="stats"></div>
+    <h1 id="result"></h1>
+    <p id="summary"></p>
+    <p id="overBest"></p>
     <div class="actions"><button class="cta" id="again">다시 하기</button><a class="alt" href="games.html">게임 목록</a></div>
-    <p class="record" id="overBest"></p>
   </div>
 </section>
 <script src="gaze.js"></script>
@@ -161,10 +157,9 @@
   function showOver() {
     state = 'over'; hideBanner();
     const rec = best('ghost', score);
-    $('#final').textContent = score.toLocaleString();
-    $('#newbest').hidden = !rec.isNew;
-    $('#stats').innerHTML = `<span>버틴 시간<b>${Math.round(elapsed)}초</b></span><span>없앤 유령<b>${kills}</b></span><span>최고 콤보<b>×${maxCombo}</b></span>`;
-    $('#overBest').textContent = `최고 기록 ${rec.best.toLocaleString()}`;
+    $('#result').textContent = `${score.toLocaleString()}점`;
+    $('#summary').textContent = `등불이 다 꺼졌습니다. ${Math.round(elapsed)}초 동안 유령 ${kills}마리를 없앴고, 가장 긴 콤보는 ${maxCombo}번이었습니다.`;
+    $('#overBest').textContent = rec.isNew ? '새 최고 기록입니다.' : rec.best ? `최고 기록 ${rec.best.toLocaleString()}점` : '';
     $('#over').hidden = false;
     Sound.play('over');
   }
@@ -289,7 +284,7 @@
   function hud() {
     const values = {score: score.toLocaleString(), time: Math.floor(elapsed), lives};
     if (values.score !== shown.score) $('#score').textContent = values.score;
-    if (values.time !== shown.time) $('#time').textContent = `${values.time}s`;
+    if (values.time !== shown.time) $('#time').textContent = `${values.time}초`;
     if (values.lives !== shown.lives) $('#flames').innerHTML = [0, 1, 2].map(i => FLAME.replace('<svg', `<svg class="${i < lives ? '' : 'out'}"`)).join('');
     shown = values;
   }
@@ -305,7 +300,8 @@
     hud();
     requestAnimationFrame(frame);
   }
-  $('#startBest').textContent = `최고 기록 ${best('ghost', 0).best.toLocaleString()}`;
+  const record0 = best('ghost', 0).best;
+  $('#startBest').textContent = record0 ? `최고 기록 ${record0.toLocaleString()}점` : '';
   $('#play').onclick = $('#again').onclick = start;
   requestAnimationFrame(frame);
 </script>

@@ -2,13 +2,13 @@
 // 학교 노트북은 시선 모델이 CPU를 많이 쓴다. 무거운 그림(배경·빛·운석)은 한 번만 그려 두고 매 프레임에는 drawImage만 한다
 const DPR = Math.min(devicePixelRatio || 1, 1.5);
 const TAU = Math.PI * 2;
-const FONT = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif';
+const FONT = 'system-ui, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = list => list[Math.floor(Math.random() * list.length)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const easeOutCubic = t => 1 - (1 - t) ** 3;
-const easeOutBack = t => 1 + 2.70158 * (t - 1) ** 3 + 1.70158 * (t - 1) ** 2;
+const easeOutBack = t => 1 + 2.70158 * (t - 1) ** 3 + 1.70158 * (t - 1) ** 2; // 두더지가 튀어나올 때만
 const rgba = ([r, g, b], a = 1) => `rgba(${r},${g},${b},${a})`;
 const $ = selector => document.querySelector(selector);
 
@@ -125,9 +125,9 @@ class Popups {
     ctx.save();
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
     for (const p of this.list) {
-      const t = p.age / p.life, scale = t < .18 ? easeOutBack(t / .18) : 1;
+      const t = p.age / p.life;
       ctx.globalAlpha = t < .6 ? 1 : 1 - (t - .6) / .4;
-      ctx.font = `900 ${p.size * scale}px ${FONT}`;
+      ctx.font = `800 ${p.size}px ${FONT}`;
       const y = p.y - easeOutCubic(t) * 50;
       ctx.lineWidth = p.size * .22; ctx.strokeStyle = 'rgba(0,0,0,.55)';
       ctx.strokeText(p.text, p.x, y);
@@ -201,14 +201,10 @@ addEventListener('pointerdown', event => { if (event.isTrusted && Sound.on) Soun
 addEventListener('keydown', event => { if (event.isTrusted && Sound.on) Sound.start(); }, true);
 
 // 위쪽 띠의 소리 버튼(입 클릭으로도 켜고 끌 수 있다)
-const ICON = {
-  on: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>',
-  off: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m22 9-6 6M16 9l6 6"/></svg>',
-};
 const soundButton = document.createElement('button');
-soundButton.className = 'pill sound';
+soundButton.className = 'stat';
 function showSound() {
-  soundButton.innerHTML = !Sound.on ? `${ICON.off}소리 꺼짐` : Sound.running() ? `${ICON.on}소리 켜짐` : `${ICON.on}소리: 마우스로 한 번 누르세요`;
+  soundButton.textContent = !Sound.on ? '소리 꺼짐' : Sound.running() ? '소리 켜짐' : '소리: 마우스로 한 번 누르세요';
 }
 soundButton.onclick = event => {
   // 켜져 있는데 브라우저가 막아 둔 상태면, 실제 마우스 클릭은 끄지 않고 소리를 연다

@@ -5,43 +5,39 @@
 <title>두더지 잡기</title>
 <link rel="stylesheet" href="style.css">
 <style>
-  body { --tint: #fcd34d; --tint2: #fb923c; --tint-glow: rgba(252, 211, 77, .45); }
   /* 구멍마다 투명한 큰 버튼: 확장의 대상 선택(초록 테두리)과 입 클릭이 그대로 쓰인다. 그림은 캔버스가 그린다 */
   .hole { position: fixed; z-index: 2; border: 0; border-radius: 42%; background: transparent; cursor: pointer; outline: none; }
 </style>
 <!-- 두더지 잡기: 입 클릭은 1초 남짓 걸리므로 두더지가 오래(2초 넘게) 나와 있고, 들어간 직후에 눌러도 잡은 것으로 친다 -->
 <canvas id="canvas"></canvas>
 <div class="hud">
-  <a class="pill exit" href="games.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>목록</a>
+  <a class="stat exit" href="games.html">← 목록</a>
   <span class="grow"></span>
-  <span class="pill"><small>COMBO</small><span id="combo">-</span></span>
-  <span class="pill" id="timePill"><small>TIME</small><span id="time">60</span></span>
-  <span class="pill"><small>SCORE</small><span id="score">0</span></span>
+  <span class="stat">연속 <b id="combo">-</b></span>
+  <span class="stat" id="timePill">남은 시간 <b id="time">60</b></span>
+  <span class="stat">점수 <b id="score">0</b></span>
 </div>
 <div id="holes"></div>
 <div class="banner" id="banner" hidden></div>
 <section class="screen" id="start">
   <div class="panel">
-    <p class="kicker">GOLDEN HOUR</p>
     <h1>두더지 잡기</h1>
-    <p class="lead">두더지가 고개를 내밀면 그 구멍을 바라보고 입을 벌렸다 다무세요. 마우스로 눌러도 됩니다.</p>
-    <ul class="howto">
-      <li><b>시선 + 입</b>구멍을 보고 잡기</li>
-      <li><b>황금 두더지</b>+300점</li>
-      <li><b>연속</b>놓치지 않으면 보너스</li>
+    <p>두더지가 나온 구멍을 바라보고 입을 벌렸다 다무세요. 마우스로 눌러도 됩니다.</p>
+    <ul class="rules">
+      <li>60초 동안 잡은 만큼 점수를 받습니다.</li>
+      <li>황금 두더지는 300점입니다.</li>
+      <li>놓치지 않고 연달아 잡으면 점수가 조금씩 더 붙습니다.</li>
     </ul>
-    <div class="actions"><button class="cta" id="play">시작하기</button></div>
-    <p class="record" id="startBest"></p>
+    <div class="actions"><button class="cta" id="play">시작</button></div>
+    <p id="startBest"></p>
   </div>
 </section>
 <section class="screen" id="over" hidden>
   <div class="panel">
-    <p class="kicker">TIME UP · 시간 종료</p>
-    <div class="bigscore" id="final">0</div>
-    <span class="newbest" id="newbest" hidden>NEW RECORD</span>
-    <div class="stats" id="stats"></div>
+    <h1 id="result"></h1>
+    <p id="summary"></p>
+    <p id="overBest"></p>
     <div class="actions"><button class="cta" id="again">다시 하기</button><a class="alt" href="games.html">게임 목록</a></div>
-    <p class="record" id="overBest"></p>
   </div>
 </section>
 <script src="gaze.js"></script>
@@ -187,10 +183,9 @@
   function end() {
     state = 'over'; current = null; next = t + 1;
     const rec = best('mole', score);
-    $('#final').textContent = score.toLocaleString();
-    $('#newbest').hidden = !rec.isNew;
-    $('#stats').innerHTML = `<span>잡은 두더지<b>${caught}</b></span><span>놓친 두더지<b>${missed}</b></span><span>최고 연속<b>${maxCombo}</b></span>`;
-    $('#overBest').textContent = `최고 기록 ${rec.best.toLocaleString()}`;
+    $('#result').textContent = `${score.toLocaleString()}점`;
+    $('#summary').textContent = `시간이 끝났습니다. ${caught}마리를 잡고 ${missed}마리를 놓쳤습니다. 가장 길게 이어 잡은 것은 ${maxCombo}마리입니다.`;
+    $('#overBest').textContent = rec.isNew ? '새 최고 기록입니다.' : rec.best ? `최고 기록 ${rec.best.toLocaleString()}점` : '';
     $('#over').hidden = false;
     Sound.play('over');
   }
@@ -310,7 +305,8 @@
     hud();
     requestAnimationFrame(frame);
   }
-  $('#startBest').textContent = `최고 기록 ${best('mole', 0).best.toLocaleString()}`;
+  const record0 = best('mole', 0).best;
+  $('#startBest').textContent = record0 ? `최고 기록 ${record0.toLocaleString()}점` : '';
   $('#play').onclick = $('#again').onclick = start;
   requestAnimationFrame(frame);
 </script>

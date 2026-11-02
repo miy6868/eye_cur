@@ -14,7 +14,7 @@ addEventListener('mousemove', event => {
 const gazeLost = () => eyeAt > mouseAt && performance.now() - eyeAt > 800;
 // 위쪽 띠에 무엇으로 조종 중인지 보여 준다. 시선 신호가 안 오면 대개 확장·페이지를 새로고침하지 않은 것이다
 const source = document.createElement('span');
-source.className = 'pill source';
+source.className = 'stat source';
 document.querySelector('.hud')?.insertBefore(source, document.querySelector('.hud .grow'));
 setInterval(() => {
   const now = performance.now();

@@ -51,7 +51,7 @@
 | `extension/words/ko.json`, `en.json` | 추천 단어(빈도순). `scripts/build_words.py`로 생성, CC-BY-SA 4.0 |
 | `my_words.txt` | 사용자가 직접 넣는 추천 단어(한 줄에 하나, `#` 뒤 무시). 서버가 `settings.words`로 보내고 content.js가 빈도 목록 끝에 붙인다(우선순위 없이 같은 단어 취급, 사용자 요청). 한글이 있으면 한글 키보드용. ANSI로 저장돼 못 읽으면 연결은 유지하고 빈 목록 |
 | `extension/popup.html`, `popup.js` | 토큰 입력, 시작/다시 보정/중지, 상태, 스위치 두 개(정보 표시, 키보드 자동 표시) |
-| `demo/` | 시연 페이지(`/demo`). `index.html` 첫 화면(테스트 \| 게임), `test.html` 기능 점검(예전 demo.html), `games.html` 목록, `ghost`·`ship`·`mole.html` 게임. `gaze.js`가 content.js가 보내는 시선 좌표(없으면 마우스)를 받고, `kit.js`는 게임 공용(캔버스·입자·효과음·최고 점수), `style.css`는 공용 모양. 그림은 이미지 파일 없이 캔버스·SVG로 그린다(인터넷 없이 동작). 두더지만 확장의 대상 선택·입 클릭을 쓰고, 나머지는 클릭 없이 좌표만 쓴다 |
+| `demo/` | 시연 페이지(`/demo`). `index.html` 첫 화면(테스트 \| 게임), `test.html` 기능 점검(예전 demo.html), `games.html` 목록, `ghost`·`ship`·`mole.html` 게임. `gaze.js`가 content.js가 보내는 시선 좌표(없으면 마우스)를 받고, `kit.js`는 게임 공용(캔버스·입자·효과음·최고 점수), `style.css`는 공용 모양. 게임 장면은 이미지 파일 없이 캔버스로 그리고(인터넷 없이 동작), `img/*.jpg`는 게임 목록용 실제 게임 화면 캡처. 두더지만 확장의 대상 선택·입 클릭을 쓰고, 나머지는 클릭 없이 좌표만 쓴다 |
 | `vendor/unigaze.py` | UniGaze-B를 torch만으로 다시 쓴 것. 설치 때 ONNX 변환에만 쓴다 |
 | `scripts/` | `download_models.py`(가중치 → ONNX), `build_words.py`(추천 단어), `check_cpu.py`(카메라 없이 모델 점검, setup.ps1 마지막에 실행), `check_camera.py`(카메라·얼굴·시선 확인) |
 | `setup.*`, `start.*` | uv로 Python 3.11 venv·CPU torch·requirements·모델 변환 / 서버 실행 |

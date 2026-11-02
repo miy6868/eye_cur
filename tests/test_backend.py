@@ -21,7 +21,7 @@ class SocketTests(unittest.TestCase):
         page = self.client.get('/demo/test.html')
         self.assertIn('클릭 0회', page.text)
         self.assertEqual(page.headers['cache-control'], 'no-cache')
-        for page in ('games.html', 'ghost.html', 'ship.html', 'mole.html', 'gaze.js', 'kit.js', 'style.css'):
+        for page in ('games.html', 'ghost.html', 'ship.html', 'mole.html', 'gaze.js', 'kit.js', 'style.css', 'img/ship.jpg'):
             self.assertEqual(self.client.get(f'/demo/{page}').status_code, 200, page)
 
     def test_bad_origin_and_token(self):
