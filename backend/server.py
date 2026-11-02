@@ -136,6 +136,15 @@ async def socket(ws: WebSocket):
 # 시연 페이지(첫 화면·테스트·게임). /demo는 /demo/로 넘어가 index.html을 연다
 app.mount("/demo", StaticFiles(directory=ROOT / "demo", html=True), name="demo")
 
+
+@app.middleware("http")
+async def demo_no_cache(request, call_next):
+    # 캐시 지시가 없으면 Chrome이 고치기 전 게임 파일(gaze.js 등)을 그대로 썼다. no-cache = 매번 서버에 확인(바뀌지 않았으면 304)
+    response = await call_next(request)
+    if request.url.path.startswith("/demo"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
 if __name__ == "__main__":
     from backend.camera import choose_camera
     choose_camera()

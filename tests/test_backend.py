@@ -18,7 +18,9 @@ class SocketTests(unittest.TestCase):
     def test_health_and_demo(self):
         self.assertEqual(self.client.get('/health').json()['device'], 'cpu')
         self.assertIn('테스트', self.client.get('/demo').text)  # /demo/로 넘어가 첫 화면
-        self.assertIn('클릭 0회', self.client.get('/demo/test.html').text)
+        page = self.client.get('/demo/test.html')
+        self.assertIn('클릭 0회', page.text)
+        self.assertEqual(page.headers['cache-control'], 'no-cache')
         for page in ('games.html', 'ghost.html', 'ship.html', 'mole.html', 'gaze.js'):
             self.assertEqual(self.client.get(f'/demo/{page}').status_code, 200, page)
 
