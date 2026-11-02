@@ -5,79 +5,313 @@
 <title>두더지 잡기</title>
 <link rel="stylesheet" href="style.css">
 <style>
-  /* 구멍은 큰 버튼 6개: 확장의 대상 선택(초록 테두리)과 입 클릭이 그대로 쓰인다 */
-  .holes { height: 100%; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr 1fr; gap: 4vw; padding: 14vh 6vw 10vh; }
-  .hole { border: 3px solid #334155; border-radius: 50% / 40%; background: radial-gradient(ellipse at 50% 70%, #1c1917 0 45%, #292524 46%); font-size: min(14vh, 10vw); cursor: pointer; color: inherit; }
-  .hole.hit { background: radial-gradient(ellipse at 50% 70%, #422006 0 45%, #292524 46%); }
-  #time { width: 30vw; height: 14px; border-radius: 7px; background: #334155; overflow: hidden; }
-  #time div { height: 100%; background: #22c55e; }
+  body { --tint: #fcd34d; --tint2: #fb923c; --tint-glow: rgba(252, 211, 77, .45); }
+  /* 구멍마다 투명한 큰 버튼: 확장의 대상 선택(초록 테두리)과 입 클릭이 그대로 쓰인다. 그림은 캔버스가 그린다 */
+  .hole { position: fixed; z-index: 2; border: 0; border-radius: 42%; background: transparent; cursor: pointer; outline: none; }
 </style>
 <!-- 두더지 잡기: 입 클릭은 1초 남짓 걸리므로 두더지가 오래(2초 넘게) 나와 있고, 들어간 직후에 눌러도 잡은 것으로 친다 -->
-<div class="bar"><a class="button" href="games.html">나가기</a><span class="grow"></span><div id="time"><div></div></div><span id="score">0마리</span></div>
-<main class="holes"></main>
+<canvas id="canvas"></canvas>
+<div class="hud">
+  <a class="pill exit" href="games.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>목록</a>
+  <span class="grow"></span>
+  <span class="pill"><small>COMBO</small><span id="combo">-</span></span>
+  <span class="pill" id="timePill"><small>TIME</small><span id="time">60</span></span>
+  <span class="pill"><small>SCORE</small><span id="score">0</span></span>
+</div>
+<div id="holes"></div>
+<div class="banner" id="banner" hidden></div>
 <section class="screen" id="start">
-  <h1>🐹 두더지 잡기</h1>
-  <p>두더지가 나온 구멍을 바라보고 입을 벌렸다 다물어 잡으세요(마우스로 눌러도 돼요).<br>60초 동안 몇 마리 잡을까요? 갈수록 빨리 숨어요.</p>
-  <div class="row"><button class="button" id="play">시작</button></div>
+  <div class="panel">
+    <p class="kicker">GOLDEN HOUR</p>
+    <h1>두더지 잡기</h1>
+    <p class="lead">두더지가 고개를 내밀면 그 구멍을 바라보고 입을 벌렸다 다무세요. 마우스로 눌러도 됩니다.</p>
+    <ul class="howto">
+      <li><b>시선 + 입</b>구멍을 보고 잡기</li>
+      <li><b>황금 두더지</b>+300점</li>
+      <li><b>연속</b>놓치지 않으면 보너스</li>
+    </ul>
+    <div class="actions"><button class="cta" id="play">시작하기</button></div>
+    <p class="record" id="startBest"></p>
+  </div>
 </section>
 <section class="screen" id="over" hidden>
-  <h1 id="result"></h1>
-  <p id="record"></p>
-  <div class="row"><button class="button" id="again">다시</button><a class="button" href="games.html">나가기</a></div>
+  <div class="panel">
+    <p class="kicker">TIME UP · 시간 종료</p>
+    <div class="bigscore" id="final">0</div>
+    <span class="newbest" id="newbest" hidden>NEW RECORD</span>
+    <div class="stats" id="stats"></div>
+    <div class="actions"><button class="cta" id="again">다시 하기</button><a class="alt" href="games.html">게임 목록</a></div>
+    <p class="record" id="overBest"></p>
+  </div>
 </section>
 <script src="gaze.js"></script>
+<script src="kit.js"></script>
 <script>
-  const GAME_MS = 60000;
-  const GRACE_MS = 800;  // 숨은 뒤에도 이만큼은 잡은 것으로 친다(입을 다무는 사이 숨어 버리는 일)
-  const holes = Array.from({length: 6}, () => Object.assign(document.createElement('button'), {className: 'hole'}));
-  document.querySelector('.holes').append(...holes);
-  let score, missed, started, mole, timer, running = false;
+  const GAME_S = 60;
+  const GRACE = .8;  // 숨은 뒤에도 이만큼(초)은 잡은 것으로 친다(입을 다무는 사이 숨어 버리는 일). 그동안 다음 두더지는 안 나온다
+  const LAYOUT = [[.25, .47, .78], [.5, .47, .78], [.75, .47, .78], [.2, .8, 1], [.5, .8, 1], [.8, .8, 1]]; // x, y(화면 비율), 크기(뒷줄은 작게)
+  const parts = new Particles(), popups = new Popups();
+  const scene = {};
+  const holes = LAYOUT.map((_, i) => {
+    const button = Object.assign(document.createElement('button'), {className: 'hole', ariaLabel: `구멍 ${i + 1}`});
+    $('#holes').append(button);
+    return {button};
+  });
+  let state = 'attract', t = 0, readyUntil = 0, startAt = 0, next = 0, lastTick = 0;
+  let moles = [], current = null, score = 0, caught = 0, missed = 0, combo = 0, maxCombo = 0;
+  const view = setupCanvas($('#canvas'), build);
+  const {ctx} = view;
 
-  // 나와 있는 시간: 3초에서 시작해 끝날 무렵 1.8초까지 줄어든다
-  const upTime = () => 3000 - 1200 * Math.min(1, (performance.now() - started) / GAME_MS);
-  function show() {
-    if (!running) return;
-    const choices = holes.filter(h => h !== mole?.hole);
-    mole = {hole: choices[Math.floor(Math.random() * choices.length)], until: performance.now() + upTime(), caught: false};
-    mole.hole.textContent = '🐹';
-    timer = setTimeout(hide, mole.until - performance.now());
+  function moundPath(g, h) { g.ellipse(h.x, h.y + h.ry * .25, h.rx * 1.5, h.ry * 2.2, 0, 0, TAU); }
+  // 뒤 둔덕과 앞 둔덕이 같은 흙 색이어야 이음매가 안 보인다
+  function soil(g, hole) {
+    const grad = g.createRadialGradient(hole.x + hole.rx * .3, hole.y - hole.ry * 1.2, 0, hole.x, hole.y, hole.rx * 1.6);
+    grad.addColorStop(0, '#b07a4a'); grad.addColorStop(.55, '#7a4f2c'); grad.addColorStop(1, '#3d2614');
+    return grad;
   }
-  function hide() {
-    if (!mole.caught) { missed++; mole.hole.textContent = ''; }
-    timer = setTimeout(show, GRACE_MS + Math.random() * 400); // 늦게 누른 것을 받을 수 있게 다음 두더지는 GRACE_MS 뒤에
+  function build({w, h}) {
+    const base = Math.min(w * .1, h * .15);
+    LAYOUT.forEach(([fx, fy, s], i) => {
+      const hole = Object.assign(holes[i], {x: fx * w, y: fy * h, rx: base * s, ry: base * s * .36});
+      Object.assign(hole.button.style, {left: `${hole.x - hole.rx * 1.35}px`, top: `${hole.y - hole.rx * 1.5}px`, width: `${hole.rx * 2.7}px`, height: `${hole.rx * 1.5 + hole.ry * 1.8}px`});
+    });
+    const horizon = h * .36, sun = [w * .7, h * .31];
+    scene.back = sprite(w, h, g => {
+      const sky = g.createLinearGradient(0, 0, 0, horizon);
+      sky.addColorStop(0, '#2b3b74'); sky.addColorStop(.55, '#c9785e'); sky.addColorStop(1, '#ffd49a');
+      g.fillStyle = sky; g.fillRect(0, 0, w, horizon + 2);
+      const r = Math.min(w, h) * .05;
+      const halo = g.createRadialGradient(...sun, r, ...sun, r * 12);
+      halo.addColorStop(0, 'rgba(255,214,150,.75)'); halo.addColorStop(1, 'rgba(255,214,150,0)');
+      g.fillStyle = halo; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#fff4dc'; g.beginPath(); g.arc(...sun, r, 0, TAU); g.fill();
+      // 언덕: 멀수록 하늘색에 가깝게(대기)
+      [['#c4836f', .27, .04], ['#8d6b55', .31, .05], ['#4c5a30', .345, .035]].forEach(([color, top, amp], k) => {
+        const a = rand(0, 9), b = rand(0, 9);
+        const ridge = x => h * top + Math.sin(x / w * 5 + a) * h * amp * .5 + Math.sin(x / w * 13 + b) * h * amp * .25;
+        g.fillStyle = color; g.beginPath(); g.moveTo(0, h);
+        for (let x = 0; x <= w; x += 8) g.lineTo(x, ridge(x));
+        g.lineTo(w, h); g.fill();
+        if (k === 2) for (let x = 0; x < w; x += rand(10, 26)) { const s = rand(8, 20); g.beginPath(); g.arc(x, ridge(x) - s * .6, s, 0, TAU); g.fill(); } // 먼 나무 줄
+      });
+      const field = g.createLinearGradient(0, horizon, 0, h);
+      field.addColorStop(0, '#c2b05c'); field.addColorStop(.2, '#a3a94c'); field.addColorStop(.45, '#759639'); field.addColorStop(.75, '#4a7a2d'); field.addColorStop(1, '#2d5520');
+      g.fillStyle = field; g.fillRect(0, horizon, w, h - horizon);
+      const glare = g.createRadialGradient(sun[0], horizon, 0, sun[0], horizon, w * .55);
+      glare.addColorStop(0, 'rgba(255,200,120,.45)'); glare.addColorStop(1, 'rgba(255,200,120,0)');
+      g.fillStyle = glare; g.fillRect(0, horizon, w, h - horizon);
+      // 풀잎: 가까울수록 길고 진하다(원근)
+      g.lineCap = 'round';
+      for (let i = 0; i < 5000; i++) {
+        const k = Math.random() ** .7, y = horizon + k * (h - horizon), x = rand(-10, w + 10), len = 2 + k * 16;
+        g.strokeStyle = `hsla(${rand(70, 100)},${rand(35, 55)}%,${rand(18, 42) + (1 - k) * 18}%,${rand(.35, .8)})`;
+        g.lineWidth = .6 + k * 1.6;
+        g.beginPath(); g.moveTo(x, y); g.lineTo(x + rand(-1, 1) * len * .4, y - len); g.stroke();
+      }
+      for (const hole of holes) {
+        const shadow = g.createRadialGradient(hole.x, hole.y + hole.ry, 0, hole.x, hole.y + hole.ry, hole.rx * 1.9);
+        shadow.addColorStop(0, 'rgba(20,28,8,.45)'); shadow.addColorStop(1, 'rgba(20,28,8,0)');
+        g.fillStyle = shadow; g.fillRect(hole.x - hole.rx * 2, hole.y - hole.rx, hole.rx * 4, hole.rx * 2.5);
+        g.fillStyle = soil(g, hole); g.beginPath(); moundPath(g, hole); g.fill();
+        for (let i = 0; i < 14; i++) { // 흙덩이
+          const a = rand(0, TAU), d = rand(1.1, 1.6);
+          g.fillStyle = `rgba(${rand(70, 140)},${rand(45, 90)},${rand(20, 50)},.9)`;
+          g.beginPath(); g.ellipse(hole.x + Math.cos(a) * hole.rx * d, hole.y + hole.ry * .3 + Math.sin(a) * hole.ry * d * 1.8, rand(2, 6), rand(1.5, 4), 0, 0, TAU); g.fill();
+        }
+        const pit = g.createRadialGradient(hole.x, hole.y + hole.ry * .4, 0, hole.x, hole.y, hole.rx);
+        pit.addColorStop(0, '#050201'); pit.addColorStop(.7, '#1a0d05'); pit.addColorStop(1, '#3a2010');
+        g.fillStyle = pit; g.beginPath(); g.ellipse(hole.x, hole.y, hole.rx, hole.ry, 0, 0, TAU); g.fill();
+        g.strokeStyle = 'rgba(255,214,160,.35)'; g.lineWidth = 2; // 해가 비추는 오른쪽 위 가장자리
+        g.beginPath(); g.ellipse(hole.x, hole.y, hole.rx, hole.ry, 0, Math.PI * 1.1, Math.PI * 1.95); g.stroke();
+      }
+    });
+    // 앞쪽 흙 둔덕(두더지 몸 아래를 가린다)과 화면 앞 풀
+    scene.front = sprite(w, h, g => {
+      for (const hole of holes) {
+        g.save();
+        g.beginPath(); g.rect(0, hole.y, w, h); g.clip();
+        g.fillStyle = soil(g, hole); g.beginPath(); moundPath(g, hole); g.ellipse(hole.x, hole.y, hole.rx, hole.ry, 0, 0, TAU); g.fill('evenodd');
+        g.strokeStyle = 'rgba(255,220,170,.28)'; g.lineWidth = 2;
+        g.beginPath(); g.ellipse(hole.x, hole.y, hole.rx, hole.ry, 0, 0, Math.PI); g.stroke();
+        g.restore();
+      }
+      g.lineCap = 'round';
+      for (let i = 0; i < 260; i++) {
+        const x = rand(-20, w + 20), y = h + rand(0, 20), len = rand(30, 90);
+        g.strokeStyle = `hsla(${rand(80, 110)},45%,${rand(8, 18)}%,.95)`; g.lineWidth = rand(2, 5);
+        g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + rand(-20, 20), y - len * .6, x + rand(-30, 30), y - len); g.stroke();
+      }
+    });
+    scene.vignette = vignette(w, h, [30, 10, 0], .55);
   }
-  for (const hole of holes) hole.onclick = () => {
-    if (!running || !mole || hole !== mole.hole || mole.caught || performance.now() > mole.until + GRACE_MS) return;
-    mole.caught = true; score++;
-    if (performance.now() > mole.until) missed--; // hide()가 이미 놓친 것으로 셌다
-    hole.textContent = '💥'; hole.classList.add('hit');
-    setTimeout(() => { hole.classList.remove('hit'); if (hole.textContent === '💥') hole.textContent = ''; }, 500);
-    // 잡으면 바로 다음 두더지(이미 숨은 뒤 잡은 경우는 다음 것이 예약돼 있다)
-    if (performance.now() < mole.until) { clearTimeout(timer); timer = setTimeout(show, 500); }
-    document.querySelector('#score').textContent = `${score}마리`;
-  };
-  function tick() {
-    if (!running) return;
-    const left = 1 - (performance.now() - started) / GAME_MS;
-    document.querySelector('#time div').style.width = `${Math.max(0, left) * 100}%`;
-    if (left <= 0) return end();
-    requestAnimationFrame(tick);
+
+  function upTime() { return state === 'play' ? 3 - 1.2 * Math.min(1, (t - startAt) / GAME_S) : 1.3; } // 3초 → 끝날 무렵 1.8초
+  function spawn() {
+    const choices = holes.filter(h => h !== moles.at(-1)?.hole);
+    const hole = pick(choices), kind = state === 'play' && Math.random() < .12 ? 'gold' : 'normal';
+    current = {hole, kind, born: t, until: t + upTime(), rise: 0, caught: false, hitAt: null, phase: rand(0, TAU)};
+    moles.push(current);
+    if (state === 'play') Sound.play('pop');
+    parts.emit(hole.x, hole.y, {count: 10, color: [150, 105, 60], speed: [40, 140], angle: -Math.PI / 2, spread: 1.1, gravity: 600, life: [.3, .6], size: [1.5, 3.5], jitter: hole.rx * .5});
   }
+  function whack(hole) {
+    if (state !== 'play') return;
+    const m = current;
+    if (!m || m.hole !== hole || m.caught || t > m.until + GRACE) { // 빈 구멍: 벌점 없이 흙먼지만
+      Sound.play('thud');
+      parts.emit(hole.x, hole.y, {count: 8, color: [190, 160, 120], speed: [20, 80], life: [.4, .8], size: [6, 12], grow: 1.2, alpha: .4});
+      return;
+    }
+    m.caught = true; m.hitAt = t; current = null; next = t + .55;
+    combo++; caught++; maxCombo = Math.max(maxCombo, combo);
+    const gold = m.kind === 'gold', points = (gold ? 300 : 100) + 20 * Math.min(combo - 1, 10);
+    score += points;
+    const top = hole.y - hole.rx * 1.1;
+    popups.add(hole.x, top, gold ? `황금! +${points}` : `+${points}`, {color: gold ? '#fde047' : '#fff', size: gold ? 38 : 32});
+    if (combo >= 3) popups.add(hole.x, top - 40, `${combo}연속`, {color: '#fdba74', size: 22, life: 1.1});
+    parts.emit(hole.x, top + hole.rx * .4, {count: 18, glow: true, color: gold ? [255, 220, 80] : [255, 240, 180], speed: [80, 300], life: [.25, .55], size: [2, 4]});
+    parts.emit(hole.x, hole.y, {count: 22, color: [120, 80, 45], speed: [150, 420], angle: -Math.PI / 2, spread: 1.2, gravity: 1100, life: [.5, 1], size: [2, 5], drag: .5});
+    parts.emit(hole.x, hole.y, {count: 10, color: [215, 190, 150], speed: [30, 120], life: [.6, 1.1], size: [8, 16], grow: 1.6, alpha: .45});
+    shake.add(gold ? 9 : 6);
+    Sound.play('whack'); if (gold) Sound.play('gold');
+  }
+  holes.forEach(hole => { hole.button.onclick = () => whack(hole); });
+
   function start() {
-    score = 0; missed = 0; started = performance.now(); mole = null; running = true;
-    for (const hole of holes) hole.textContent = '';
-    document.querySelector('#score').textContent = '0마리';
-    document.querySelector('#start').hidden = document.querySelector('#over').hidden = true;
-    timer = setTimeout(show, 800);
-    tick();
+    state = 'ready'; readyUntil = t + 1.4;
+    moles = []; current = null; score = 0; caught = 0; missed = 0; combo = 0; maxCombo = 0;
+    $('#start').hidden = $('#over').hidden = true;
+    banner('준비', '두더지를 보고 입을 벌렸다 다무세요', 0);
+    Sound.play('start');
   }
   function end() {
-    running = false; clearTimeout(timer);
-    for (const hole of holes) hole.textContent = '';
-    document.querySelector('#result').textContent = `${score}마리`;
-    document.querySelector('#record').textContent = `놓친 두더지 ${missed}마리 · 최고 ${best('mole', score)}마리`;
-    document.querySelector('#over').hidden = false;
+    state = 'over'; current = null; next = t + 1;
+    const rec = best('mole', score);
+    $('#final').textContent = score.toLocaleString();
+    $('#newbest').hidden = !rec.isNew;
+    $('#stats').innerHTML = `<span>잡은 두더지<b>${caught}</b></span><span>놓친 두더지<b>${missed}</b></span><span>최고 연속<b>${maxCombo}</b></span>`;
+    $('#overBest').textContent = `최고 기록 ${rec.best.toLocaleString()}`;
+    $('#over').hidden = false;
+    Sound.play('over');
   }
-  document.querySelector('#play').onclick = document.querySelector('#again').onclick = start;
+  function update(dt) {
+    if (state === 'ready' && t > readyUntil) { state = 'play'; startAt = t; next = t + .3; banner('시작!', '', 700); Sound.play('go'); }
+    if (state === 'play') {
+      const left = GAME_S - (t - startAt);
+      if (left <= 10 && Math.ceil(left) !== lastTick) { lastTick = Math.ceil(left); Sound.play('tick'); }
+      if (left <= 0) end();
+    }
+    if (current && !current.caught && t > current.until + GRACE) { // 끝내 못 잡음
+      if (state === 'play') {
+        missed++; combo = 0;
+        popups.add(current.hole.x, current.hole.y - current.hole.rx * .6, '놓침', {color: '#d6d3d1', size: 22, life: .8});
+        Sound.play('miss');
+      }
+      current = null; next = t + rand(.1, .4);
+    }
+    if (!current && state !== 'ready' && t >= next) spawn();
+    for (const m of moles) {
+      if (m.hitAt !== null) { const k = t - m.hitAt; m.rise = k < .5 ? 1 : Math.max(0, 1 - (k - .5) / .22); m.done = k > .75; }
+      else if (t < m.until) { const k = (t - m.born) / .22; m.rise = k < 1 ? easeOutBack(k) : 1; }
+      else { const k = (t - m.until) / .18; m.rise = Math.max(0, 1 - k * k); m.done = k >= 1 && m !== current; }
+    }
+    moles = moles.filter(m => !m.done);
+    parts.update(dt); popups.update(dt);
+  }
+
+  function drawMole(m) {
+    const {hole} = m, s = hole.rx / 100, hit = m.hitAt !== null, gold = m.kind === 'gold';
+    if (m.rise <= 0) return;
+    const bob = hit ? 0 : Math.sin(t * 5 + m.phase) * 3;
+    const top = hole.y + (70 - m.rise * 185 + bob) * s;
+    ctx.save();
+    // 구멍 위쪽과 구멍 안만 보이게 자른다(아래는 땅속)
+    ctx.beginPath(); ctx.rect(hole.x - hole.rx * 2, 0, hole.rx * 4, hole.y); ctx.ellipse(hole.x, hole.y, hole.rx, hole.ry, 0, 0, TAU); ctx.clip();
+    if (gold) light(ctx, [255, 210, 80], hole.x, top + 20 * s, 120 * s, .55);
+    ctx.save();
+    ctx.translate(hole.x, top);
+    const squash = hit ? Math.max(0, 1 - (t - m.hitAt) / .5) : 0;
+    ctx.scale(s * (1 + squash * .15), s * (1 - squash * .2));
+    const fur = ctx.createRadialGradient(-22, -10, 5, 0, 30, 95);
+    fur.addColorStop(0, gold ? '#fff0a8' : '#b07a55'); fur.addColorStop(.5, gold ? '#e2ac1f' : '#6b4329'); fur.addColorStop(1, gold ? '#7a5604' : '#2c1a0e');
+    ctx.fillStyle = fur;
+    for (const ex of [-44, 44]) { ctx.beginPath(); ctx.arc(ex, -14, 13, 0, TAU); ctx.fill(); }
+    ctx.beginPath(); ctx.ellipse(0, 50, 66, 80, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,214,160,.45)'; ctx.lineWidth = 4; // 해 쪽(오른쪽) 테두리 빛
+    ctx.beginPath(); ctx.ellipse(0, 50, 64, 78, 0, -Math.PI * .45, Math.PI * .05); ctx.stroke();
+    ctx.fillStyle = gold ? 'rgba(255,248,200,.55)' : 'rgba(222,186,150,.5)';
+    ctx.beginPath(); ctx.ellipse(0, 72, 40, 52, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,120,120,.3)';
+    for (const cx of [-38, 38]) { ctx.beginPath(); ctx.arc(cx, 20, 9, 0, TAU); ctx.fill(); }
+    if (hit) { // 맞으면 눈이 X
+      ctx.strokeStyle = '#1a0f08'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      for (const ex of [-22, 22]) { ctx.beginPath(); ctx.moveTo(ex - 7, -7); ctx.lineTo(ex + 7, 7); ctx.moveTo(ex + 7, -7); ctx.lineTo(ex - 7, 7); ctx.stroke(); }
+    } else {
+      const look = Math.sin(t * 1.7 + m.phase) * 3;
+      for (const ex of [-22, 22]) {
+        ctx.fillStyle = '#120a05'; ctx.beginPath(); ctx.arc(ex + look, 0, 8.5, 0, TAU); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex + look - 2.5, -3, 2.8, 0, TAU); ctx.fill();
+      }
+    }
+    ctx.fillStyle = '#f1c9aa'; ctx.beginPath(); ctx.ellipse(0, 24, 30, 20, 0, 0, TAU); ctx.fill();
+    const nose = ctx.createRadialGradient(-3, 10, 1, 0, 14, 13);
+    nose.addColorStop(0, '#ff9ab5'); nose.addColorStop(1, '#c23a63');
+    ctx.fillStyle = nose; ctx.beginPath(); ctx.ellipse(0, 14, 13, 9, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#fffaf0'; ctx.fillRect(-6, 33, 5, 9); ctx.fillRect(1, 33, 5, 9);
+    ctx.strokeStyle = 'rgba(40,25,15,.55)'; ctx.lineWidth = 1.5;
+    for (const side of [-1, 1]) for (const dy of [-5, 0, 5]) { ctx.beginPath(); ctx.moveTo(side * 18, 24 + dy * .4); ctx.lineTo(side * 52, 20 + dy * 1.6); ctx.stroke(); }
+    ctx.restore(); // 크기만 되돌리고 자르기는 남긴다
+    const pit = ctx.createLinearGradient(0, hole.y - hole.ry * .6, 0, hole.y + hole.ry); // 구멍 속은 그늘
+    pit.addColorStop(0, 'rgba(12,6,2,0)'); pit.addColorStop(1, 'rgba(12,6,2,.92)');
+    ctx.fillStyle = pit; ctx.fillRect(hole.x - hole.rx, hole.y - hole.ry, hole.rx * 2, hole.ry * 2);
+    ctx.restore();
+    if (hit && t - m.hitAt < .7) { // 머리 위를 도는 별
+      for (let k = 0; k < 3; k++) {
+        const a = t * 7 + k * TAU / 3, sx = hole.x + Math.cos(a) * 46 * s, sy = top - 48 * s + Math.sin(a) * 12 * s;
+        light(ctx, [255, 230, 120], sx, sy, 16 * s, .9);
+        ctx.fillStyle = '#fff7c2'; ctx.beginPath(); ctx.arc(sx, sy, 4 * s, 0, TAU); ctx.fill();
+      }
+    }
+  }
+  function drawPaws(m) { // 구멍 가장자리를 짚은 앞발(앞쪽 둔덕 위에 그린다)
+    if (m.rise < .85 || m.hitAt !== null) return;
+    const {hole} = m, s = hole.rx / 100;
+    ctx.fillStyle = m.kind === 'gold' ? '#f5d77a' : '#e6b896';
+    for (const side of [-1, 1]) { ctx.beginPath(); ctx.ellipse(hole.x + side * 40 * s, hole.y + 4 * s, 15 * s, 9 * s, 0, 0, TAU); ctx.fill(); }
+  }
+  function draw(dt) {
+    const {w, h} = view;
+    ctx.save();
+    shake.apply(ctx, dt);
+    ctx.drawImage(scene.back, -20, -20, w + 40, h + 40);
+    for (const m of moles) drawMole(m);
+    ctx.drawImage(scene.front, -20, -20, w + 40, h + 40);
+    for (const m of moles) drawPaws(m);
+    parts.draw(ctx);
+    popups.draw(ctx);
+    ctx.restore();
+    ctx.drawImage(scene.vignette, 0, 0, w, h);
+  }
+  let shown = {};
+  function hud() {
+    const left = state === 'play' ? Math.max(0, Math.ceil(GAME_S - (t - startAt))) : state === 'over' ? 0 : GAME_S;
+    const values = {score: score.toLocaleString(), left, combo: combo >= 2 ? `×${combo}` : '-'};
+    if (values.score !== shown.score) $('#score').textContent = values.score;
+    if (values.combo !== shown.combo) $('#combo').textContent = values.combo;
+    if (values.left !== shown.left) { $('#time').textContent = values.left; $('#timePill').classList.toggle('danger', state === 'play' && left <= 10); }
+    shown = values;
+  }
+  const tick = clock();
+  function frame(now) {
+    const dt = tick(now);
+    t += dt;
+    update(dt);
+    draw(dt);
+    hud();
+    requestAnimationFrame(frame);
+  }
+  $('#startBest').textContent = `최고 기록 ${best('mole', 0).best.toLocaleString()}`;
+  $('#play').onclick = $('#again').onclick = start;
+  requestAnimationFrame(frame);
 </script>
 </html>

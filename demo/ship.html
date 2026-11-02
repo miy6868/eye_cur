@@ -4,111 +4,363 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>운석 피하기</title>
 <link rel="stylesheet" href="style.css">
+<style>body { --tint: #7dd3fc; --tint2: #c4b5fd; --tint-glow: rgba(125, 211, 252, .5); }</style>
 <!-- 운석 피하기: 우주선이 시선의 좌우 위치를 늦게 따라간다(시선 떨림이 가려진다). 위아래는 조금만 움직인다.
-     부딪힘 판정은 그림보다 작게 잡아 시선 오차로 억울하게 죽지 않게 하고, 대신 시간이 갈수록 운석이 끝없이 빨라지고 많아진다 -->
-<div class="bar"><a class="button" href="games.html">나가기</a><span class="grow"></span><span id="fuel"></span><span id="score">0점</span></div>
+     부딪힘 판정은 그림보다 작게, 연료는 가까이 가면 끌려오게 해서 시선 오차로 억울하지 않게 하고, 대신 운석이 끝없이 빨라지고 많아진다 -->
 <canvas id="canvas"></canvas>
+<div class="hud">
+  <a class="pill exit" href="games.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>목록</a>
+  <span class="grow"></span>
+  <span class="pill"><small>SECTOR</small><span id="sector">1</span></span>
+  <span class="pill" id="fuelPill"><small>FUEL</small><span class="meter"><i id="fuelBar"></i></span></span>
+  <span class="pill"><small>SCORE</small><span id="score">0</span></span>
+</div>
+<div class="banner" id="banner" hidden></div>
+<div class="banner" id="notice" hidden><div>시선을 찾는 중<small>화면을 바라보고 입을 다물면 이어집니다</small></div></div>
 <section class="screen" id="start">
-  <h1>🚀 운석 피하기</h1>
-  <p>우주선이 바라보는 곳을 따라 좌우로 움직여요. 운석을 피하고 ⛽ 연료를 먹으세요.<br>운석에 부딪히거나 연료가 떨어지면 끝. 갈수록 빨라집니다.</p>
-  <div class="row"><button class="button" id="play">시작</button></div>
+  <div class="panel">
+    <p class="kicker">DEEP SPACE RUN</p>
+    <h1>운석 피하기</h1>
+    <p class="lead">우주선이 당신의 시선을 따라 움직입니다. 쏟아지는 운석 사이를 빠져나가며 연료를 모으세요.</p>
+    <ul class="howto">
+      <li><b>시선</b>좌우로 조종</li>
+      <li><b>연료</b>가까이 가면 끌려와요</li>
+      <li><b>아슬아슬</b>스치면 보너스</li>
+    </ul>
+    <div class="actions"><button class="cta" id="play">시작하기</button></div>
+    <p class="record" id="startBest"></p>
+  </div>
 </section>
 <section class="screen" id="over" hidden>
-  <h1 id="result"></h1>
-  <p id="record"></p>
-  <div class="row"><button class="button" id="again">다시</button><a class="button" href="games.html">나가기</a></div>
+  <div class="panel">
+    <p class="kicker" id="reason"></p>
+    <div class="bigscore" id="final">0</div>
+    <span class="newbest" id="newbest" hidden>NEW RECORD</span>
+    <div class="stats" id="stats"></div>
+    <div class="actions"><button class="cta" id="again">다시 하기</button><a class="alt" href="games.html">게임 목록</a></div>
+    <p class="record" id="overBest"></p>
+  </div>
 </section>
 <script src="gaze.js"></script>
+<script src="kit.js"></script>
 <script>
-  const canvas = document.querySelector('#canvas'), ctx = canvas.getContext('2d');
-  const FOLLOW = 5;        // 1초에 남은 거리의 몇 배만큼 따라가나(클수록 빠르고 떨림이 더 보인다)
-  const SHIP_HIT = 22;     // 우주선 부딪힘 반지름(그림은 약 35)
-  const VERTICAL = 40;     // 시선 위아래에 따라 움직이는 최대 폭(px)
-  const FUEL_PER_S = 7, FUEL_CAN = 35;
-  let ship, rocks, cans, stars, fuel, score, elapsed, rockIn, canIn, last, running = false;
+  const FOLLOW = 5;         // 1초에 남은 거리의 몇 배만큼 따라가나(클수록 빠르고 떨림이 더 보인다)
+  const SHIP_HIT = 20;      // 우주선 부딪힘 반지름(그림은 약 40)
+  const VERTICAL = 40;      // 시선 위아래에 따라 움직이는 최대 폭(px)
+  const FUEL_PER_S = 7, FUEL_CELL = 35, MAGNET = 150;
+  const SECTOR_S = 25;      // 이 초마다 단계 표시
+  const parts = new Particles(), popups = new Popups();
+  const ROCKS = Array.from({length: 8}, makeRock);
+  const scene = {};
+  let stars = [];
+  let state = 'attract', t = 0, scroll = 0, slow = 1, flash = 0, endAt = 0, readyUntil = 0, warnIn = 0, demoIn = 0;
+  let ship = {x: innerWidth / 2, y: innerHeight * .8, roll: 0}, rocks = [], cells = [], rings = [];
+  let fuel = 100, score = 0, elapsed = 0, sector = 1, rockIn = 0, cellIn = 0, shield = 0, record = {cells: 0, near: 0};
+  const view = setupCanvas($('#canvas'), build);
+  const {ctx} = view;
+  let planet = makePlanet();
 
-  function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
-  addEventListener('resize', resize); resize();
-  stars = Array.from({length: 120}, () => ({x: Math.random(), y: Math.random(), z: 0.3 + Math.random() * 0.7}));
-
-  function start() {
-    ship = {x: canvas.width / 2, y: canvas.height * 0.8, tilt: 0};
-    rocks = []; cans = []; fuel = 100; score = 0; elapsed = 0; rockIn = 1; canIn = 3;
-    last = performance.now(); running = true;
-    document.querySelector('#start').hidden = document.querySelector('#over').hidden = true;
-    requestAnimationFrame(loop);
+  function build({ctx, w, h}) {
+    scene.bg = ctx.createLinearGradient(0, 0, 0, h);
+    scene.bg.addColorStop(0, '#04050d'); scene.bg.addColorStop(.6, '#070a1a'); scene.bg.addColorStop(1, '#0b0920');
+    // 성운: 위아래가 이어지게(타일) 그려서 끝없이 흘려 보낸다. 흐릿한 그림이라 작게 그려 늘린다
+    const nh = h * 1.6;
+    scene.nebula = sprite(w, nh, g => {
+      const colors = [[96, 64, 220], [40, 110, 230], [210, 70, 170], [30, 180, 200], [140, 60, 200]];
+      const blob = (x, y, r, color, a) => {
+        for (const dy of [-nh, 0, nh]) {
+          const grad = g.createRadialGradient(x, y + dy, 0, x, y + dy, r);
+          grad.addColorStop(0, rgba(color, a)); grad.addColorStop(1, rgba(color, 0));
+          g.fillStyle = grad; g.fillRect(x - r, y + dy - r, r * 2, r * 2);
+        }
+      };
+      for (let i = 0; i < 18; i++) blob(rand(0, w), rand(0, nh), rand(.15, .45) * w, pick(colors), rand(.05, .16));
+      g.globalCompositeOperation = 'destination-out'; // 어두운 먼지 띠
+      for (let i = 0; i < 26; i++) blob(rand(0, w), rand(0, nh), rand(.05, .16) * w, [0, 0, 0], rand(.15, .45));
+    }, .35);
+    scene.vignette = vignette(w, h, [0, 0, 8], .8);
+    scene.danger = vignette(w, h, [255, 30, 30], .55);
+    stars = Array.from({length: Math.round(w * h / 5000)}, () => {
+      const z = Math.random() ** 2;
+      return {x: rand(0, w), y: rand(0, h), z, size: .6 + z * 2.2, a: .25 + z * .75, tw: rand(1, 4)};
+    });
   }
-  // 떨어지는 속도: 끝없이 빨라져서 결국은 피할 수 없게 된다
-  const fall = () => 160 + elapsed * 9;
-  function loop(now) {
-    if (!running) return;
-    const dt = Math.min(0.05, (now - last) / 1000); last = now; elapsed += dt;
-    const w = canvas.width, h = canvas.height;
-    const targetX = Math.min(w - 40, Math.max(40, gaze.x));
-    const move = (targetX - ship.x) * Math.min(1, dt * FOLLOW);
-    ship.x += move;
-    ship.y = h * 0.8 + Math.max(-1, Math.min(1, (gaze.y - h * 0.8) / (h * 0.4))) * VERTICAL;
-    ship.tilt += (Math.max(-0.5, Math.min(0.5, move / dt / 1500)) - ship.tilt) * Math.min(1, dt * 8);
+  function makeRock() {
+    const R = 46;
+    return sprite(R * 2 + 8, R * 2 + 8, g => {
+      g.translate(R + 4, R + 4);
+      const n = 13, pts = Array.from({length: n}, (_, i) => { const a = i / n * TAU, k = R * rand(.76, 1); return [Math.cos(a) * k, Math.sin(a) * k]; });
+      const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const shape = new Path2D();
+      shape.moveTo(...mid(pts[0], pts[1]));
+      for (let i = 1; i <= n; i++) { const p = pts[i % n], m = mid(p, pts[(i + 1) % n]); shape.quadraticCurveTo(p[0], p[1], m[0], m[1]); }
+      const base = pick([[122, 110, 100], [104, 98, 96], [130, 104, 84], [98, 92, 104]]);
+      const body = g.createRadialGradient(-R * .4, -R * .45, R * .1, 0, 0, R * 1.1);
+      body.addColorStop(0, rgba(base.map(v => Math.min(255, v * 1.7)))); body.addColorStop(.45, rgba(base)); body.addColorStop(1, rgba(base.map(v => v * .22)));
+      g.fillStyle = body; g.fill(shape);
+      g.save(); g.clip(shape);
+      for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(0,0,0,${rand(.03, .1)})`; g.beginPath(); g.arc(rand(-R, R), rand(-R, R), rand(2, 8), 0, TAU); g.fill(); }
+      for (let i = 0, n = rand(4, 7); i < n; i++) { // 구덩이: 안쪽은 어둡고 빛 반대편 가장자리는 밝다
+        const x = rand(-R * .6, R * .6), y = rand(-R * .6, R * .6), r = rand(R * .08, R * .22);
+        const c = g.createRadialGradient(x - r * .3, y - r * .3, 0, x, y, r);
+        c.addColorStop(0, 'rgba(0,0,0,.5)'); c.addColorStop(.8, 'rgba(0,0,0,.2)'); c.addColorStop(1, 'rgba(255,230,200,.2)');
+        g.fillStyle = c; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+      }
+      const shade = g.createLinearGradient(-R, -R, R, R);
+      shade.addColorStop(.45, 'rgba(0,0,0,0)'); shade.addColorStop(1, 'rgba(0,0,0,.6)');
+      g.fillStyle = shade; g.fillRect(-R - 4, -R - 4, R * 2 + 8, R * 2 + 8);
+      g.translate(2, 2); g.lineWidth = 3; g.strokeStyle = 'rgba(255,225,195,.28)'; g.stroke(shape); // 빛 받는 쪽 테두리
+      g.restore();
+    });
+  }
+  function makePlanet() {
+    const R = rand(70, 140), hue = pick([[214, 120, 80], [80, 130, 220], [170, 100, 210], [70, 170, 150]]);
+    const s = sprite(R * 2.8, R * 2.8, g => {
+      const c = R * 1.4;
+      g.translate(c, c);
+      const air = g.createRadialGradient(0, 0, R * .92, 0, 0, R * 1.4);
+      air.addColorStop(0, rgba(hue, .35)); air.addColorStop(1, rgba(hue, 0));
+      g.fillStyle = air; g.fillRect(-c, -c, c * 2, c * 2);
+      g.save(); g.beginPath(); g.arc(0, 0, R, 0, TAU); g.clip();
+      const body = g.createLinearGradient(-R, -R, R, R);
+      body.addColorStop(0, rgba(hue.map(v => Math.min(255, v * 1.3)))); body.addColorStop(1, rgba(hue.map(v => v * .45)));
+      g.fillStyle = body; g.fillRect(-R, -R, R * 2, R * 2);
+      g.rotate(rand(-.4, .4));
+      for (let i = 0; i < 10; i++) { g.fillStyle = Math.random() < .5 ? `rgba(255,255,255,${rand(.04, .12)})` : `rgba(0,0,0,${rand(.05, .15)})`; g.fillRect(-R * 1.5, rand(-R, R), R * 3, rand(R * .03, R * .16)); }
+      g.setTransform(DPR, 0, 0, DPR, c * DPR, c * DPR);
+      const night = g.createRadialGradient(-R * .5, -R * .5, R * .2, -R * .2, -R * .2, R * 1.6);
+      night.addColorStop(0, 'rgba(0,0,0,0)'); night.addColorStop(.55, 'rgba(0,0,0,.2)'); night.addColorStop(1, 'rgba(2,3,10,.96)');
+      g.fillStyle = night; g.fillRect(-R, -R, R * 2, R * 2);
+      g.restore();
+    });
+    return {s, x: rand(.1, .9) * innerWidth, y: -R * 1.6, speed: rand(5, 10)};
+  }
 
-    rockIn -= dt;
-    if (rockIn <= 0) {
-      const r = 18 + Math.random() * (22 + Math.min(30, elapsed * 0.4));
-      rocks.push({x: Math.random() * w, y: -r, r, vx: (Math.random() - 0.5) * 60, speed: fall() * (0.8 + Math.random() * 0.5), spin: Math.random() * 6});
-      rockIn = Math.max(0.12, 0.9 - elapsed * 0.012) * (0.6 + Math.random() * 0.8);
+  const speed = () => state === 'play' || state === 'dying' ? 170 + elapsed * 9 : 140; // 떨어지는 속도: 끝없이 빨라져 결국 피할 수 없게 된다
+  function spawnRock(demo = false) {
+    const {w} = view, r = rand(16, 30 + Math.min(30, elapsed * .4)), vy = speed() * rand(.8, 1.3), x = rand(-20, w + 20);
+    // 넷 중 하나는 우주선 쪽으로 온다: 한 자리에 가만히 있으면 버틸 수 없게
+    const vx = !demo && Math.random() < .25 ? clamp((ship.x - x) / (ship.y / vy), -220, 220) : rand(-40, 40);
+    rocks.push({x, y: -r - 10, r, vx, vy, rot: rand(0, TAU), spin: rand(-1.5, 1.5), sprite: pick(ROCKS), closest: 1e9, hot: vy > 560, near: false});
+  }
+  function start() {
+    const {w, h} = view;
+    state = 'ready'; readyUntil = t + 1.6;
+    rocks = []; cells = []; rings = []; fuel = 100; score = 0; elapsed = 0; sector = 1; rockIn = .6; cellIn = 3; shield = 3; slow = 1;
+    record = {cells: 0, near: 0};
+    ship = {x: w / 2, y: h + 80, roll: 0};
+    $('#start').hidden = $('#over').hidden = true;
+    banner('준비', '우주선이 시선을 따라 움직입니다', 0);
+    Sound.play('start');
+  }
+  function crash() {
+    state = 'dying'; slow = .25; endAt = t + 2;
+    const {x, y} = ship;
+    parts.emit(x, y, {count: 70, glow: true, color: [255, 160, 60], speed: [80, 540], life: [.4, 1.1], size: [2, 5], drag: 2.2});
+    parts.emit(x, y, {count: 30, glow: true, color: [255, 240, 200], speed: [40, 260], life: [.2, .5], size: [3, 7]});
+    parts.emit(x, y, {count: 26, color: [130, 130, 140], speed: [60, 320], life: [.8, 1.6], size: [1.5, 4], drag: 1, grow: -.3});
+    parts.emit(x, y, {count: 18, color: [50, 50, 62], speed: [20, 90], life: [1.2, 2.2], size: [10, 20], grow: 1.6, alpha: .55, drag: 1});
+    rings.push({x, y, max: 280, age: 0, life: .8, color: [255, 200, 140]});
+    flash = .55; shake.add(26); Sound.play('explode');
+    ship.gone = true;
+  }
+  function drift() {
+    state = 'dying'; endAt = t + 1.8; ship.drifting = true;
+    banner('연료 고갈', '엔진이 꺼졌습니다', 1600);
+    Sound.play('over');
+  }
+  function showOver() {
+    state = 'over'; hideBanner();
+    const final = Math.floor(score), rec = best('ship', final);
+    $('#reason').textContent = ship.drifting ? 'OUT OF FUEL · 연료가 떨어졌습니다' : 'IMPACT · 운석과 충돌했습니다';
+    $('#final').textContent = final.toLocaleString();
+    $('#newbest').hidden = !rec.isNew;
+    $('#stats').innerHTML = `<span>비행<b>${Math.round(elapsed)}초</b></span><span>도달<b>SECTOR ${sector}</b></span><span>연료<b>${record.cells}개</b></span><span>아슬아슬<b>${record.near}번</b></span>`;
+    $('#overBest').textContent = `최고 기록 ${rec.best.toLocaleString()}`;
+    $('#over').hidden = false;
+    if (!ship.drifting) Sound.play('over');
+  }
+
+  function update(dt, realDt) {
+    const {w, h} = view;
+    scroll += speed() * dt;
+    for (const s of stars) { s.y += speed() * (.08 + s.z * .5) * dt; if (s.y > h) { s.y -= h; s.x = rand(0, w); } }
+    planet.y += planet.speed * dt * speed() / 170;
+    if (planet.y - planet.s.h / 2 > h) planet = makePlanet();
+
+    // 우주선: 시작 화면에서는 혼자 흔들리고, 게임 중에는 시선을 늦게 따라간다
+    const playing = state === 'ready' || state === 'play';
+    const targetX = playing ? clamp(gaze.x, 50, w - 50) : w / 2 + Math.sin(t * .7) * w * .18;
+    const baseY = h * .8, before = ship.x;
+    if (!ship.drifting) {
+      ship.x += (targetX - ship.x) * Math.min(1, dt * FOLLOW);
+      ship.y = lerp(ship.y, baseY + (playing ? clamp((gaze.y - baseY) / (h * .4), -1, 1) * VERTICAL : Math.sin(t * 1.3) * 8), Math.min(1, dt * 4));
+      ship.roll = lerp(ship.roll, dt ? clamp((ship.x - before) / dt / 900, -1, 1) : ship.roll, Math.min(1, dt * 8));
+    } else { ship.y += 70 * dt; ship.roll += .8 * dt; }
+    if (!ship.gone && !ship.drifting && dt) for (const side of [-11, 11]) {
+      parts.emit(ship.x + side, ship.y + 34, {count: 2, glow: true, color: [255, 150, 70], angle: Math.PI / 2, spread: .25, speed: [160, 280], life: [.15, .35], size: [3, 5], drag: 3});
     }
-    canIn -= dt;
-    if (canIn <= 0) { cans.push({x: 40 + Math.random() * (w - 80), y: -30}); canIn = 2.5 + Math.random() * 2; }
 
-    for (const r of rocks) { r.y += r.speed * dt; r.x += r.vx * dt; r.spin += dt; }
-    for (const c of cans) c.y += fall() * 0.7 * dt;
-    fuel -= FUEL_PER_S * dt;
-    score += dt * 10 * (1 + elapsed / 30);
-    for (const c of cans) if (Math.hypot(c.x - ship.x, c.y - ship.y) < SHIP_HIT + 30) { c.got = true; fuel = Math.min(100, fuel + FUEL_CAN); score += 50; }
-    const hit = rocks.some(r => Math.hypot(r.x - ship.x, r.y - ship.y) < SHIP_HIT + r.r * 0.8);
-    rocks = rocks.filter(r => r.y < h + 60);
-    cans = cans.filter(c => !c.got && c.y < h + 40);
-    draw(dt);
-    if (hit) return end('운석에 부딪혔어요');
-    if (fuel <= 0) return end('연료가 떨어졌어요');
-    requestAnimationFrame(loop);
+    if (state === 'ready' && t > readyUntil) { state = 'play'; banner('출발!', '', 700); Sound.play('go'); }
+    if (state === 'play') {
+      elapsed += dt;
+      const now = 1 + Math.floor(elapsed / SECTOR_S);
+      if (now > sector) { sector = now; banner(`SECTOR ${sector}`, '운석이 더 빨라집니다', 1400); Sound.play('level'); }
+      shield = Math.max(0, shield - dt);
+      rockIn -= dt;
+      if (rockIn <= 0) { spawnRock(); rockIn = Math.max(.12, .9 - elapsed * .012) * rand(.6, 1.4); }
+      cellIn -= dt;
+      if (cellIn <= 0) { cells.push({x: rand(60, w - 60), y: -30, phase: rand(0, TAU)}); cellIn = rand(2.5, 4.5); }
+      fuel -= FUEL_PER_S * dt;
+      score += dt * 10 * (1 + elapsed / 30);
+      if (fuel < 25 && (warnIn -= dt) <= 0) { Sound.play('warn'); warnIn = .9; }
+    } else if (state !== 'dying' && (demoIn -= dt) <= 0) { spawnRock(true); demoIn = rand(.5, 1.2); } // 시작·끝 화면 뒤 배경
+
+    for (const r of rocks) {
+      r.x += r.vx * dt; r.y += r.vy * dt; r.rot += r.spin * dt;
+      if (r.hot && dt && Math.random() < .5) parts.emit(r.x, r.y - r.r * .5, {count: 1, glow: true, color: [255, 130, 50], speed: [5, 30], vy: r.vy * .25, life: [.3, .6], size: [2, 4]});
+    }
+    for (const c of cells) {
+      const d = Math.hypot(ship.x - c.x, ship.y - c.y);
+      if (state === 'play' && d < MAGNET) { c.x += (ship.x - c.x) * Math.min(1, dt * 7); c.y += (ship.y - c.y) * Math.min(1, dt * 7); }
+      else c.y += speed() * .6 * dt;
+    }
+    if (state === 'play') {
+      for (const c of cells) if (Math.hypot(ship.x - c.x, ship.y - c.y) < SHIP_HIT + 26) {
+        c.got = true; fuel = Math.min(100, fuel + FUEL_CELL); score += 50; record.cells++;
+        popups.add(c.x, c.y - 24, '+50 연료', {color: '#6ee7b7', size: 26});
+        parts.emit(c.x, c.y, {count: 26, glow: true, color: [110, 255, 200], speed: [60, 260], life: [.3, .7], size: [2, 4]});
+        rings.push({x: c.x, y: c.y, max: 80, age: 0, life: .45, color: [110, 255, 200]});
+        Sound.play('pickup');
+      }
+      for (const r of rocks) {
+        const d = Math.hypot(r.x - ship.x, r.y - ship.y) - r.r * .8;
+        if (d < SHIP_HIT && shield <= 0) { crash(); break; }
+        if (Math.abs(r.y - ship.y) < 50) r.closest = Math.min(r.closest, d);
+        if (!r.near && r.y > ship.y + 60 && r.closest < SHIP_HIT + 36) { // 스치고 지나갔다
+          r.near = true; score += 25; record.near++;
+          popups.add(ship.x, ship.y - 74, '아슬아슬! +25', {color: '#fde68a', size: 24});
+          Sound.play('whoosh');
+        }
+      }
+      if (state === 'play' && fuel <= 0) { fuel = 0; drift(); }
+    }
+    rocks = rocks.filter(r => r.y < h + 90);
+    cells = cells.filter(c => !c.got && c.y < h + 50);
+    for (const ring of rings) ring.age += realDt;
+    rings = rings.filter(ring => ring.age < ring.life);
+    parts.update(dt); popups.update(realDt);
+    if (state === 'dying') { slow = Math.min(1, slow + realDt * .45); if (t > endAt) showOver(); }
+  }
+
+  function drawShip() {
+    const {x, y, roll} = ship;
+    if (ship.gone) return;
+    if (!ship.drifting) {
+      const f = .85 + Math.random() * .3;
+      light(ctx, [255, 140, 60], x - 11, y + 34, 34 * f, .9);
+      light(ctx, [255, 140, 60], x + 11, y + 34, 34 * f, .9);
+    }
+    light(ctx, [120, 180, 255], x, y, 100, .12);
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(roll * .35); ctx.scale(1 - Math.abs(roll) * .3, 1);
+    const wing = ctx.createLinearGradient(-40, 0, 40, 0);
+    wing.addColorStop(0, '#1e293b'); wing.addColorStop(.5, '#94a3b8'); wing.addColorStop(1, '#1e293b');
+    ctx.fillStyle = wing;
+    ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(40, 20); ctx.lineTo(37, 30); ctx.lineTo(10, 25); ctx.lineTo(-10, 25); ctx.lineTo(-37, 30); ctx.lineTo(-40, 20); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#38bdf8';
+    for (const s of [1, -1]) { ctx.beginPath(); ctx.moveTo(30 * s, 15); ctx.lineTo(40 * s, 20); ctx.lineTo(37 * s, 30); ctx.lineTo(29 * s, 28); ctx.closePath(); ctx.fill(); }
+    ctx.fillStyle = '#111827'; ctx.fillRect(-17, 22, 11, 11); ctx.fillRect(6, 22, 11, 11);
+    const hull = ctx.createLinearGradient(-14, 0, 14, 0);
+    hull.addColorStop(0, '#64748b'); hull.addColorStop(.42, '#f8fafc'); hull.addColorStop(1, '#3f4a5c');
+    ctx.fillStyle = hull;
+    ctx.beginPath(); ctx.moveTo(0, -46); ctx.bezierCurveTo(10, -32, 15, -6, 14, 27); ctx.lineTo(-14, 27); ctx.bezierCurveTo(-15, -6, -10, -32, 0, -46); ctx.fill();
+    ctx.strokeStyle = 'rgba(15,23,42,.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(0, 25); ctx.stroke();
+    const glass = ctx.createLinearGradient(0, -32, 0, -6);
+    glass.addColorStop(0, '#7dd3fc'); glass.addColorStop(1, '#0c4a6e');
+    ctx.fillStyle = glass; ctx.beginPath(); ctx.ellipse(0, -18, 6.5, 13, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.beginPath(); ctx.ellipse(-2, -23, 1.6, 5, -.2, 0, TAU); ctx.fill();
+    ctx.restore();
+    if (shield > 0 && state === 'play' || state === 'ready') { // 시작 직후 보호막
+      const a = state === 'ready' ? .5 : Math.min(.5, shield) * (.7 + .3 * Math.sin(t * 14));
+      light(ctx, [120, 220, 255], x, y, 70, a * .5);
+      ctx.strokeStyle = `rgba(160,230,255,${a})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y - 4, 54, 0, TAU); ctx.stroke();
+    }
+  }
+  function drawCell(c) {
+    const pulse = .75 + .25 * Math.sin(t * 6 + c.phase);
+    light(ctx, [60, 255, 190], c.x, c.y, 64 * pulse, .6);
+    ctx.save();
+    ctx.translate(c.x, c.y); ctx.rotate(Math.sin(t * 2 + c.phase) * .35);
+    const body = ctx.createLinearGradient(-11, 0, 11, 0);
+    body.addColorStop(0, '#065f46'); body.addColorStop(.5, '#a7f3d0'); body.addColorStop(1, '#064e3b');
+    ctx.fillStyle = body; ctx.beginPath(); ctx.roundRect(-11, -16, 22, 32, 6); ctx.fill();
+    const cap = ctx.createLinearGradient(-12, 0, 12, 0);
+    cap.addColorStop(0, '#475569'); cap.addColorStop(.5, '#e2e8f0'); cap.addColorStop(1, '#334155');
+    ctx.fillStyle = cap; ctx.beginPath(); ctx.roundRect(-12, -21, 24, 7, 3); ctx.roundRect(-12, 14, 24, 7, 3); ctx.fill();
+    ctx.fillStyle = `rgba(240,255,250,${.6 + .4 * pulse})`; ctx.fillRect(-2, -10, 4, 20);
+    ctx.restore();
   }
   function draw(dt) {
-    const w = canvas.width, h = canvas.height;
-    ctx.fillStyle = '#020617'; ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#e2e8f0';
+    const {w, h} = view;
+    ctx.save();
+    shake.apply(ctx, dt);
+    ctx.fillStyle = scene.bg; ctx.fillRect(-40, -40, w + 80, h + 80);
+    const n = scene.nebula, off = (scroll * .04) % n.h;
+    ctx.drawImage(n, 0, off - n.h, w, n.h); ctx.drawImage(n, 0, off, w, n.h);
+    drawSprite(ctx, planet.s, planet.x, planet.y);
+    const streak = Math.max(0, speed() - 380) * .035; // 빨라지면 별이 줄처럼 늘어난다
+    ctx.fillStyle = '#e8eefc';
     for (const s of stars) {
-      s.y = (s.y + dt * fall() * s.z * 0.3 / h) % 1;
-      ctx.globalAlpha = s.z; ctx.fillRect(s.x * w, s.y * h, 2 * s.z, 2 * s.z);
+      ctx.globalAlpha = s.a * (.75 + .25 * Math.sin(t * s.tw + s.x));
+      const len = streak * s.z;
+      ctx.fillRect(s.x, s.y - len, s.size, s.size + len);
     }
     ctx.globalAlpha = 1;
+    for (const c of cells) drawCell(c);
     for (const r of rocks) {
-      ctx.save(); ctx.translate(r.x, r.y); ctx.rotate(r.spin);
-      ctx.fillStyle = '#78716c'; ctx.beginPath();
-      for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2, k = r.r * (0.85 + 0.15 * Math.sin(i * 2.7 + r.r)); ctx.lineTo(Math.cos(a) * k, Math.sin(a) * k); }
-      ctx.fill();
-      ctx.fillStyle = '#57534e'; ctx.beginPath(); ctx.arc(r.r * 0.3, -r.r * 0.2, r.r * 0.25, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
+      if (r.hot) light(ctx, [255, 110, 40], r.x, r.y - r.r * .5, r.r * 2.4, .55);
+      drawSprite(ctx, r.sprite, r.x, r.y, r.r / 46, r.rot);
     }
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = '44px serif';
-    for (const c of cans) ctx.fillText('⛽', c.x, c.y);
-    ctx.save(); ctx.translate(ship.x, ship.y); ctx.rotate(ship.tilt);
-    ctx.fillStyle = '#f97316'; ctx.beginPath(); ctx.moveTo(-10, 28); ctx.lineTo(0, 44 + Math.random() * 14); ctx.lineTo(10, 28); ctx.fill();
-    ctx.fillStyle = '#e2e8f0'; ctx.beginPath(); ctx.moveTo(0, -38); ctx.lineTo(26, 28); ctx.lineTo(0, 18); ctx.lineTo(-26, 28); ctx.fill();
-    ctx.fillStyle = '#38bdf8'; ctx.beginPath(); ctx.arc(0, -6, 7, 0, Math.PI * 2); ctx.fill();
+    parts.draw(ctx);
+    drawShip();
+    for (const ring of rings) {
+      const k = ring.age / ring.life;
+      light(ctx, ring.color, ring.x, ring.y, ring.max * (1 - k * .5), .5 * (1 - k)); // 터지는 순간의 빛
+      ctx.strokeStyle = rgba(ring.color, 1 - k); ctx.lineWidth = 12 * (1 - k) + 1;
+      ctx.beginPath(); ctx.arc(ring.x, ring.y, ring.max * easeOutCubic(k), 0, TAU); ctx.stroke();
+    }
+    popups.draw(ctx);
     ctx.restore();
-    // 연료 막대: 우주선 바로 아래에 두어 눈을 떼지 않고 볼 수 있게 한다
-    ctx.fillStyle = '#334155'; ctx.fillRect(ship.x - 40, ship.y + 58, 80, 8);
-    ctx.fillStyle = fuel < 30 ? '#ef4444' : '#22c55e'; ctx.fillRect(ship.x - 40, ship.y + 58, 80 * Math.max(0, fuel) / 100, 8);
-    document.querySelector('#score').textContent = `${Math.floor(score)}점`;
-    document.querySelector('#fuel').textContent = `⛽ ${Math.max(0, Math.round(fuel))}%`;
+    ctx.drawImage(scene.vignette, 0, 0, w, h);
+    if (state === 'play' && fuel < 25) { ctx.globalAlpha = .45 + .35 * Math.sin(t * 8); ctx.drawImage(scene.danger, 0, 0, w, h); ctx.globalAlpha = 1; }
+    if (flash > 0) { ctx.fillStyle = `rgba(255,240,220,${flash})`; ctx.fillRect(0, 0, w, h); flash = Math.max(0, flash - dt * 2.5); }
   }
-  function end(why) {
-    running = false;
-    document.querySelector('#result').textContent = `${Math.floor(score)}점`;
-    document.querySelector('#record').textContent = `${why} · 최고 ${best('ship', Math.floor(score))}점 · ${Math.round(elapsed)}초 비행`;
-    document.querySelector('#over').hidden = false;
+
+  let shown = {};
+  function hud() {
+    const values = {score: Math.floor(score).toLocaleString(), sector, fuel: Math.round(fuel), danger: fuel < 25 && state === 'play'};
+    if (values.score !== shown.score) $('#score').textContent = values.score;
+    if (values.sector !== shown.sector) $('#sector').textContent = values.sector;
+    if (values.fuel !== shown.fuel) $('#fuelBar').style.width = `${values.fuel}%`;
+    if (values.danger !== shown.danger) $('#fuelPill').classList.toggle('danger', values.danger);
+    shown = values;
   }
-  document.querySelector('#play').onclick = document.querySelector('#again').onclick = start;
+  const tick = clock();
+  let paused = false;
+  function frame(now) {
+    const realDt = tick(now);
+    const lost = state === 'play' && gazeLost();
+    if (lost !== paused) { paused = lost; $('#notice').hidden = !lost; }
+    t += realDt;
+    update(lost ? 0 : realDt * slow, realDt);
+    draw(realDt);
+    hud();
+    requestAnimationFrame(frame);
+  }
+  $('#startBest').textContent = `최고 기록 ${best('ship', 0).best.toLocaleString()}`;
+  $('#play').onclick = $('#again').onclick = start;
+  requestAnimationFrame(frame);
 </script>
 </html>
