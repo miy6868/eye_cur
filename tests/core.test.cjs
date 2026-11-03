@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, RateMeter, jitter, sameLayout, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = require('../extension/core.js');
+const {Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, RateMeter, jitter, sameLayout, fit, predict, distanceToRect, CALIBRATION_POINTS, CALIBRATION_ORDER, calibrationProgress, gazeRecord, medianGaze, fitPoints, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = require('../extension/core.js');
 const frame = (time, closed = false, valid = true) => ({time, closed, valid});
 
 test('ordinary blink does not click', () => {
@@ -84,6 +84,15 @@ test('calibration visits each of the 9 points twice, forward then backward', () 
     assert.equal(steps.length, 2);
     assert.equal((steps[0] + steps[1]) / 2, 8.5);
   }
+});
+
+test('calibration progress counts finished points and time in the current point', () => {
+  const cal = {settle_ms: 800, collect_ms: 600};
+  assert.deepEqual(calibrationProgress(0, 0, 18, cal), {fraction: 0, remainingMs: 18 * 1400});
+  assert.equal(calibrationProgress(9, 700, 18, cal).fraction, 9.5 / 18);
+  // 눈을 감아 점이 길어져도 그 점 몫을 넘지 않는다
+  assert.equal(calibrationProgress(17, 5000, 18, cal).fraction, 1);
+  assert.equal(calibrationProgress(17, 5000, 18, cal).remainingMs, 0);
 });
 
 test('median of a point ignores a stray frame', () => {

@@ -5,7 +5,7 @@
   const CLICK_DRIFT = false;
   // 시연 게임용: 로컬 서버의 /demo 페이지에만 시선 좌표를 넘긴다(다른 사이트는 사용자의 시선 위치를 못 본다)
   const DEMO_PAGE = ['127.0.0.1', 'localhost'].includes(location.hostname) && location.port === '8765' && location.pathname.startsWith('/demo');
-  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, RateMeter, jitter, sameLayout, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = globalThis.GazeCore;
+  const {predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, RateMeter, jitter, sameLayout, CALIBRATION_POINTS, CALIBRATION_ORDER, calibrationProgress, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure} = globalThis.GazeCore;
   // 조정 값(config.toml → 서버 → settings 메시지). 객체를 잡아 두면 값이 바뀌어도 새 값을 본다
   const CLICK = SETTINGS.click, CAL = SETTINGS.calibration;
   // 클릭 방식: config.toml [click] mode. 'mouth' = 입 벌리기 클릭(기본), 'eyes' = 양눈 감기 클릭
@@ -129,6 +129,9 @@
       #use{background:#21dba0;color:#071b2a}
       #next{position:fixed;width:46px;height:46px;border:3px dashed #9ca3af;border-radius:50%;transform:translate(-50%,-50%)}
       #dot{position:fixed;width:22px;height:22px;border:6px solid #21dba0;border-radius:50%;background:#111827;transform:translate(-50%,-50%)}
+      /* 보정 진행바: 안내(30%) 아래, 점 줄(10·50·90%)과 겹치지 않는 자리 */
+      #progress{position:fixed;top:38%;left:50%;transform:translateX(-50%);width:min(480px,60vw);height:8px;border-radius:4px;background:#d1d5db;overflow:hidden}
+      #progress>div{height:100%;width:0;background:#21dba0}
       #guide{position:fixed;top:30%;left:50%;transform:translate(-50%,-50%);font:16px/1.5 system-ui;color:#111827;text-align:center}
       /* 정보 상자는 보기만 한다: 마우스가 통과해서 아래 사이트를 그대로 누를 수 있다 */
       /* 크기를 고정한 칸에 줄마다 자리를 정해 두어 글자 길이·숫자가 바뀌어도 상자 크기가 변하지 않는다(넘치면 …) */
@@ -183,7 +186,7 @@
       #overlay .on{background:#176cff}
       .empty{border-radius:2vh;background:#ffffff08}
       </style>
-      <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 약 27초</div><div id="next"></div><div id="dot"></div><div id="choices" hidden><button id="use">그래도 사용</button><button id="retry">다시 보정</button></div></div>
+      <div id="veil"><div id="guide">머리를 고정하고 초록 점을 바라보세요. 점이 작아지면 가운데를 봅니다.<br>회색 점선 원은 다음 점 자리입니다 · 9개 점을 앞으로 한 번, 거꾸로 한 번 · 약 27초</div><div id="progress"><div></div></div><div id="next"></div><div id="dot"></div><div id="choices" hidden><button id="use">그래도 사용</button><button id="retry">다시 보정</button></div></div>
       <div id="overlay" hidden></div>
       <div id="raw" hidden></div><div id="cursor" hidden></div><div id="target" hidden></div><div id="timer" hidden><div id="ring"></div><div id="timerLabel"></div></div>
       <div id="panel"><span id="eyes">눈 상태 준비 중</span><span id="mouth"></span><span id="quality"></span><span id="drift"></span><span id="filter"></span><span id="jitter"></span><span id="head"></span><span id="perf"></span><span id="status"></span><span id="eyesize"></span><canvas id="graph" width="200" height="50"></canvas></div>`;
@@ -241,6 +244,7 @@
     }
     status(`시선 보정 중 · ${calibration.step + 1}/${CALIBRATION_ORDER.length} · 점이 작아지면 가운데를 바라보세요`);
     const elapsed = now - calibration.shownAt;
+    shadow.querySelector('#progress>div').style.width = `${calibrationProgress(calibration.step, elapsed).fraction * 100}%`;
     // 눈을 감아 표본이 min_records보다 적으면 조금 더 기다리고, timeout_ms가 지나면 그래도 다음 점으로
     const enough = elapsed >= CAL.settle_ms + CAL.collect_ms && calibration.records.length >= CAL.min_records;
     if (!enough && elapsed < CAL.timeout_ms) return;
@@ -304,6 +308,7 @@
       const message = `점 오차 약 ${pixelRms}px로 기준보다 큽니다. 그래도 사용하거나 다시 보정하세요.`;
       shadow.querySelector('#guide').textContent = message;
       shadow.querySelector('#dot').hidden = true;
+      shadow.querySelector('#progress').hidden = true;
       shadow.querySelector('#choices').hidden = false;
       status(message);
       return;
@@ -328,6 +333,7 @@
     shadow.querySelector('#guide').textContent = message;
     shadow.querySelector('#dot').hidden = true;
     shadow.querySelector('#next').hidden = true;
+    shadow.querySelector('#progress').hidden = true;
     // 실패 화면에서 바로 다시 할 수 있게 다시 보정 버튼만 보여 준다
     shadow.querySelector('#choices').hidden = false;
     shadow.querySelector('#use').hidden = true;

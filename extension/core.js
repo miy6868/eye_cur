@@ -72,6 +72,13 @@
     // 결과가 도착한 때가 아니라 촬영한 때를 쓴다: 그사이 점이 이미 옮겨 갔을 수 있다
     return {gaze: frame.gaze, time: now - age - shownAt};
   }
+  // 보정 진행바: 지금까지 본 점 수(step)와 지금 점에서 지난 시간(elapsed, ms)으로 전체 중 얼마나 했는지(0~1)와 남은 시간(ms)을 낸다.
+  // 점 하나는 settle_ms + collect_ms로 친다(눈을 감아 더 기다리는 점은 그 시간만큼 진행이 멈춘다)
+  function calibrationProgress(step, elapsed, count = CALIBRATION_ORDER.length, cal = SETTINGS.calibration) {
+    const pointMs = cal.settle_ms + cal.collect_ms;
+    const done = Math.min(count, Math.max(0, step) + Math.min(1, Math.max(0, elapsed) / pointMs));
+    return {fraction: done / count, remainingMs: (count - done) * pointMs};
+  }
   function median(values) {
     const sorted = [...values].sort((a, b) => a - b);
     const middle = Math.floor(sorted.length / 2);
@@ -390,6 +397,6 @@
   function distanceToRect(x, y, rect) {
     return Math.hypot(Math.max(rect[0] - x, 0, x - rect[0] - rect[2]), Math.max(rect[1] - y, 0, y - rect[1] - rect[3]));
   }
-  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, RateMeter, jitter, distanceToRect, sameLayout, CALIBRATION_POINTS, CALIBRATION_ORDER, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure};
+  globalThis.GazeCore = {fit, predict, Blink, MouthClick, NearestSelector, MovingAverage, ExponentialSmoothing, FixationFilter, RateMeter, jitter, distanceToRect, sameLayout, CALIBRATION_POINTS, CALIBRATION_ORDER, calibrationProgress, gazeRecord, medianGaze, fitPoints, average, correctDrift, eyeRange, eyeSize, suggest, textChange, scrollSpeed, mouthPhase, mouthRing, SETTINGS, SHORTCUTS, MY_WORDS, configure};
   if (typeof module !== 'undefined') module.exports = globalThis.GazeCore;
 })();
