@@ -10,6 +10,7 @@
 <div class="hud">
   <a class="stat exit" href="games.html">← 목록</a>
   <span class="grow"></span>
+  <span class="stat">하트 <b id="hearts">♥♥</b></span>
   <span class="stat">단계 <b id="sector">1</b></span>
   <span class="stat" id="fuelPill">연료 <span class="meter"><i id="fuelBar"></i></span></span>
   <span class="stat">점수 <b id="score">0</b></span>
@@ -23,7 +24,8 @@
     <ul class="rules">
       <li>연료통은 가까이 가면 끌려옵니다.</li>
       <li>운석을 아슬아슬하게 스치면 25점을 더 받습니다.</li>
-      <li>운석에 부딪히거나 연료가 떨어지면 끝납니다.</li>
+      <li>하트가 2개라 운석에 한 번은 부딪혀도 됩니다. 부딪힌 뒤 2초 동안은 다치지 않습니다.</li>
+      <li>하트를 다 잃거나 연료가 떨어지면 끝납니다.</li>
     </ul>
     <div class="actions"><button class="cta" id="play">시작</button></div>
     <p id="startBest"></p>
@@ -45,13 +47,14 @@
   const VERTICAL = 40;      // 시선 위아래에 따라 움직이는 최대 폭(px)
   const FUEL_PER_S = 7, FUEL_CELL = 35, MAGNET = 150;
   const SECTOR_S = 25;      // 이 초마다 단계 표시
+  const HEARTS = 2, HIT_SHIELD = 2; // 하트 수, 부딪힌 뒤 다치지 않는 시간(초)
   const parts = new Particles(), popups = new Popups();
   const ROCKS = Array.from({length: 8}, makeRock);
   const scene = {};
   let stars = [];
   let state = 'attract', t = 0, scroll = 0, slow = 1, flash = 0, endAt = 0, readyUntil = 0, warnIn = 0, demoIn = 0;
   let ship = {x: innerWidth / 2, y: innerHeight * .8, roll: 0}, rocks = [], cells = [];
-  let fuel = 100, score = 0, elapsed = 0, sector = 1, rockIn = 0, cellIn = 0, shield = 0, record = {cells: 0, near: 0};
+  let fuel = 100, score = 0, elapsed = 0, sector = 1, rockIn = 0, cellIn = 0, shield = 0, hearts = HEARTS, record = {cells: 0, near: 0};
   const view = setupCanvas($('#canvas'), build);
   const {ctx} = view;
   let planet = makePlanet();
@@ -142,7 +145,7 @@
   function start() {
     const {w, h} = view;
     state = 'ready'; readyUntil = t + 1.6;
-    rocks = []; cells = []; fuel = 100; score = 0; elapsed = 0; sector = 1; rockIn = .6; cellIn = 3; shield = 3; slow = 1;
+    rocks = []; cells = []; fuel = 100; score = 0; elapsed = 0; sector = 1; rockIn = .6; cellIn = 3; shield = 3; hearts = HEARTS; slow = 1;
     record = {cells: 0, near: 0};
     ship = {x: w / 2, y: h + 80, roll: 0};
     $('#start').hidden = $('#over').hidden = true;
@@ -157,6 +160,12 @@
     parts.emit(x, y, {count: 18, color: [50, 50, 62], speed: [20, 90], life: [1.2, 2.2], size: [10, 20], grow: 1.6, alpha: .25, drag: 1});
     flash = .2; shake.add(18); Sound.play('explode');
     ship.gone = true;
+  }
+  function hit(r) { // 하트 하나를 잃고 운석은 부서진다
+    r.gone = true; shield = HIT_SHIELD;
+    parts.emit(r.x, r.y, {count: 24, color: [140, 132, 124], speed: [60, 300], life: [.5, 1.1], size: [1.5, 4], drag: 1});
+    popups.add(ship.x, ship.y - 74, `하트 -1 (남은 하트 ${hearts})`, {color: '#f0a0a0', size: 24});
+    shake.add(12); Sound.play('hurt');
   }
   function drift() {
     state = 'dying'; endAt = t + 1.8; ship.drifting = true;
@@ -225,7 +234,7 @@
       }
       for (const r of rocks) {
         const d = Math.hypot(r.x - ship.x, r.y - ship.y) - r.r * .8;
-        if (d < SHIP_HIT && shield <= 0) { crash(); break; }
+        if (d < SHIP_HIT && shield <= 0) { if (--hearts <= 0) { crash(); break; } hit(r); continue; }
         if (Math.abs(r.y - ship.y) < 50) r.closest = Math.min(r.closest, d);
         if (!r.near && r.y > ship.y + 60 && r.closest < SHIP_HIT + 36) { // 스치고 지나갔다
           r.near = true; score += 25; record.near++;
@@ -235,7 +244,7 @@
       }
       if (state === 'play' && fuel <= 0) { fuel = 0; drift(); }
     }
-    rocks = rocks.filter(r => r.y < h + 90);
+    rocks = rocks.filter(r => !r.gone && r.y < h + 90);
     cells = cells.filter(c => !c.got && c.y < h + 50);
     parts.update(dt); popups.update(realDt);
     if (state === 'dying') { slow = Math.min(1, slow + realDt * .45); if (t > endAt) showOver(); }
@@ -268,7 +277,7 @@
     ctx.fillStyle = glass; ctx.beginPath(); ctx.ellipse(0, -18, 6.5, 13, 0, 0, TAU); ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.ellipse(-2, -23, 1.6, 5, -.2, 0, TAU); ctx.fill();
     ctx.restore();
-    if (shield > 0 && state === 'play' || state === 'ready') { // 시작 직후 보호막
+    if (shield > 0 && state === 'play' || state === 'ready') { // 시작 직후·부딪힌 직후 보호막
       const a = state === 'ready' ? .5 : Math.min(.5, shield) * (.7 + .3 * Math.sin(t * 14));
       ctx.strokeStyle = `rgba(220,225,230,${a * .6})`; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(x, y - 4, 54, 0, TAU); ctx.stroke();
@@ -316,7 +325,8 @@
 
   let shown = {};
   function hud() {
-    const values = {score: Math.floor(score).toLocaleString(), sector, fuel: Math.round(fuel), danger: fuel < 25 && state === 'play'};
+    const values = {hearts: '♥'.repeat(hearts) + '♡'.repeat(HEARTS - hearts), score: Math.floor(score).toLocaleString(), sector, fuel: Math.round(fuel), danger: fuel < 25 && state === 'play'};
+    if (values.hearts !== shown.hearts) $('#hearts').textContent = values.hearts;
     if (values.score !== shown.score) $('#score').textContent = values.score;
     if (values.sector !== shown.sector) $('#sector').textContent = values.sector;
     if (values.fuel !== shown.fuel) $('#fuelBar').style.width = `${values.fuel}%`;
