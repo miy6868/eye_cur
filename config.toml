@@ -68,6 +68,7 @@ max_px = 1200  # 화면 끝·밖의 속도
 "네이버" = "https://www.naver.com"
 "유튜브" = "https://www.youtube.com"
 "구글" = "https://www.google.com"
+"테스트/게임" = "localhost:8765/demo"
 
 [keyboard]
 height = 75  # 가상 키보드 높이(화면 높이의 %)
