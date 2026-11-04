@@ -1,9 +1,13 @@
 import unittest
 
-from backend.camera import pick_camera
+from backend.camera import camera_name, pick_camera
 
 
 class PickCameraTests(unittest.TestCase):
+    def test_unknown_camera_name_falls_back_to_number(self):
+        # 이름을 읽지 못한 번호는 OS와 상관없이 번호로 보여 준다
+        self.assertEqual(camera_name(99), "카메라 99")
+
     def test_single_or_missing_camera_does_not_ask(self):
         def never(_):
             raise AssertionError("카메라가 한 대 이하면 묻지 않아야 한다")

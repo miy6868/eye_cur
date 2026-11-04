@@ -1,4 +1,5 @@
 """Continuously drain the camera so slow CPU inference cannot build a frame backlog."""
+import functools
 import sys
 import threading
 import time
@@ -22,11 +23,91 @@ def open_capture(index):
     return cap
 
 
+@functools.cache
+def windows_camera_names():
+    """DirectShow 영상 입력 장치 이름을 OpenCV DSHOW 번호 순서대로 돌려준다(실패하면 빈 목록).
+
+    OpenCV는 이름을 주지 않는다. OpenCV DSHOW도 같은 장치 목록을 같은 순서로 세므로 목록 순서가 곧 카메라 번호다.
+    새 패키지를 늘리지 않으려고 COM 인터페이스를 ctypes로 직접 부른다(가상 함수 표의 번호로 호출).
+    """
+    import ctypes
+    from ctypes import POINTER, byref, c_long, c_ulong, c_ushort, c_void_p, c_wchar_p
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("data1", c_ulong), ("data2", c_ushort), ("data3", c_ushort), ("data4", ctypes.c_ubyte * 8)]
+
+    class VARIANT(ctypes.Structure):
+        # vt + 예약 3칸 뒤에 값. 64비트 24바이트, 32비트 16바이트가 되도록 포인터 두 칸을 둔다
+        _fields_ = [("vt", c_ushort), ("r1", c_ushort), ("r2", c_ushort), ("r3", c_ushort),
+                    ("value", c_void_p), ("extra", c_void_p)]
+
+    ole32, oleaut32 = ctypes.oledll.ole32, ctypes.windll.oleaut32
+
+    def guid(text):
+        value = GUID()
+        ole32.CLSIDFromString(c_wchar_p(text), byref(value))
+        return value
+
+    def call(obj, slot, *args):
+        # obj의 가상 함수 표 slot번 함수를 부른다. 결과는 HRESULT(0 = 성공, 1 = S_FALSE, 음수 = 실패)
+        table = ctypes.cast(obj, POINTER(POINTER(c_void_p))).contents
+        function = ctypes.WINFUNCTYPE(c_long, c_void_p, *[type(a) for a in args])(table[slot])
+        return function(obj, *args)
+
+    def release(obj):
+        if obj:
+            call(obj, 2)  # IUnknown::Release
+
+    names = []
+    initialized = ctypes.windll.ole32.CoInitializeEx(None, 2) >= 0  # 2 = 아파트 스레드. 이미 다른 방식이면 그대로 쓴다
+    devices = c_void_p()
+    monikers = c_void_p()
+    try:
+        ole32.CoCreateInstance(byref(guid("{62BE5D10-60EB-11D0-BD3B-00A0C911CE86}")),  # SystemDeviceEnum
+                               None, 1, byref(guid("{29840822-5B84-11D0-BD3B-00A0C911CE86}")),  # ICreateDevEnum
+                               byref(devices))
+        # ICreateDevEnum::CreateClassEnumerator(VideoInputDeviceCategory). 장치가 없으면 S_FALSE와 빈 포인터
+        call(devices, 3, ctypes.pointer(guid("{860BB310-5D01-11D0-BD3B-00A0C911CE86}")), ctypes.pointer(monikers),
+             c_ulong(0))
+        property_bag = guid("{55272A00-42CB-11CE-8135-00AA004BB851}")  # IPropertyBag
+        while monikers:
+            moniker = c_void_p()
+            fetched = c_ulong()
+            if call(monikers, 3, c_ulong(1), ctypes.pointer(moniker), ctypes.pointer(fetched)) != 0 or not fetched.value:
+                break  # IEnumMoniker::Next 끝
+            bag = c_void_p()
+            name = None
+            try:
+                # IMoniker::BindToStorage(9번) → IPropertyBag::Read(3번) "FriendlyName"
+                if call(moniker, 9, c_void_p(), c_void_p(), ctypes.pointer(property_bag), ctypes.pointer(bag)) == 0:
+                    variant = VARIANT()
+                    if call(bag, 3, c_wchar_p("FriendlyName"), ctypes.pointer(variant), c_void_p()) == 0:
+                        if variant.vt == 8 and variant.value:  # 8 = VT_BSTR
+                            name = ctypes.wstring_at(variant.value)
+                        oleaut32.VariantClear(byref(variant))
+            finally:
+                release(bag)
+                release(moniker)
+            names.append(name)  # 이름을 못 읽어도 자리는 채워야 뒤 카메라 번호가 맞는다
+    except OSError:
+        pass  # 이름은 보기용이라 실패해도 번호만 보여 주면 된다
+    finally:
+        release(monikers)
+        release(devices)
+        if initialized:
+            ctypes.windll.ole32.CoUninitialize()
+    return names
+
+
 def camera_name(index):
-    # Linux는 장치 이름을 파일로 읽을 수 있다. Windows는 OpenCV가 이름을 주지 않아 번호만 보여 준다
+    # Linux는 장치 이름을 파일로 읽고, Windows는 DirectShow 장치 목록에서 읽는다. 못 읽으면 번호만 보여 준다
     path = Path(f"/sys/class/video4linux/video{index}/name")
     if path.exists():
         return path.read_text(encoding="utf-8").strip()
+    if sys.platform == "win32":
+        names = windows_camera_names()
+        if index < len(names) and names[index]:
+            return names[index]
     return f"카메라 {index}"
 
 
