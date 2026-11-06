@@ -4,11 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>두더지 잡기</title>
 <link rel="stylesheet" href="style.css">
-<style>
-  /* 구멍마다 투명한 큰 버튼: 확장의 대상 선택(초록 테두리)과 입 클릭이 그대로 쓰인다. 그림은 캔버스가 그린다 */
-  .hole { position: fixed; z-index: 2; border: 0; border-radius: 42%; background: transparent; cursor: pointer; outline: none; }
-</style>
-<!-- 두더지 잡기: 입 클릭은 1초 남짓 걸리므로 두더지가 오래(2초 넘게) 나와 있고, 들어간 직후에 눌러도 잡은 것으로 친다 -->
+<!-- 두더지 잡기: 클릭 없이 두더지가 나온 구멍을 잠깐 바라보면(응시) 잡는다. 시선 좌표는 gaze.js(없으면 마우스) -->
 <canvas id="canvas"></canvas>
 <div class="hud">
   <a class="stat exit" href="games.html">← 목록</a>
@@ -17,17 +13,16 @@
   <span class="stat" id="timePill">남은 시간 <b id="time">60</b></span>
   <span class="stat">점수 <b id="score">0</b></span>
 </div>
-<div id="holes"></div>
 <div class="banner" id="banner" hidden></div>
 <section class="screen" id="start">
   <div class="panel">
     <h1>두더지 잡기</h1>
-    <p>두더지가 나온 구멍을 바라보고 입을 벌렸다 다무세요. 마우스로 눌러도 됩니다.</p>
+    <p>두더지가 나온 구멍을 잠깐 바라보면 잡습니다. 클릭은 필요 없습니다. 마우스를 올려 두어도 됩니다.</p>
     <ul class="rules">
       <li>60초 동안 잡은 만큼 점수를 받습니다.</li>
       <li>황금 두더지는 300점입니다.</li>
       <li>놓치지 않고 연달아 잡으면 점수가 조금씩 더 붙습니다.</li>
-      <li>빈 구멍을 누르면 50점이 깎이고 연속이 끊깁니다.</li>
+      <li>두더지 둘레의 고리가 다 차면 잡힙니다. 눈을 떼면 고리가 천천히 줄어듭니다.</li>
     </ul>
     <div class="actions"><button class="cta" id="play">시작</button></div>
     <p id="startBest"></p>
@@ -45,18 +40,14 @@
 <script src="kit.js"></script>
 <script>
   const GAME_S = 60;
-  const GRACE = .3;  // 숨은 뒤에도 이만큼(초)은 잡은 것으로 친다(입을 다무는 사이 숨어 버리는 일). 그동안 다음 두더지는 안 나온다. 0.8초는 너무 후했다(사용자)
-  const WRONG = 50;  // 빈 구멍을 누르면 깎는 점수
+  const DWELL = .5;  // 이만큼(초) 바라보면 잡는다
+  const DECAY = 1.5; // 눈을 떼면 고리가 줄어드는 빠르기(채우는 빠르기의 배수). 바로 0으로 하면 시선 떨림에 매번 처음부터였다
   const LAYOUT = [[.25, .47, .78], [.5, .47, .78], [.75, .47, .78], [.2, .8, 1], [.5, .8, 1], [.8, .8, 1]]; // x, y(화면 비율), 크기(뒷줄은 작게)
   const parts = new Particles(), popups = new Popups();
   const scene = {};
-  const holes = LAYOUT.map((_, i) => {
-    const button = Object.assign(document.createElement('button'), {className: 'hole', ariaLabel: `구멍 ${i + 1}`});
-    $('#holes').append(button);
-    return {button};
-  });
+  const holes = LAYOUT.map(() => ({}));
   let state = 'attract', t = 0, readyUntil = 0, startAt = 0, next = 0, lastTick = 0;
-  let moles = [], current = null, score = 0, caught = 0, missed = 0, wrong = 0, combo = 0, maxCombo = 0;
+  let moles = [], current = null, score = 0, caught = 0, missed = 0, combo = 0, maxCombo = 0;
   const view = setupCanvas($('#canvas'), build);
   const {ctx} = view;
 
@@ -70,8 +61,7 @@
   function build({w, h}) {
     const base = Math.min(w * .1, h * .15);
     LAYOUT.forEach(([fx, fy, s], i) => {
-      const hole = Object.assign(holes[i], {x: fx * w, y: fy * h, rx: base * s, ry: base * s * .36});
-      Object.assign(hole.button.style, {left: `${hole.x - hole.rx * 1.1}px`, top: `${hole.y - hole.rx * 1.45}px`, width: `${hole.rx * 2.2}px`, height: `${hole.rx * 1.45 + hole.ry}px`});
+      Object.assign(holes[i], {x: fx * w, y: fy * h, rx: base * s, ry: base * s * .36});
     });
     const horizon = h * .36, sun = [w * .7, h * .31];
     scene.back = sprite(w, h, g => {
@@ -143,25 +133,21 @@
     scene.vignette = vignette(w, h, [30, 10, 0], .55);
   }
 
-  function upTime() { return state === 'play' ? 2.4 - .9 * Math.min(1, (t - startAt) / GAME_S) : 1.3; } // 2.4초 → 끝날 무렵 1.5초(입 클릭에 1초 남짓 걸린다)
+  function upTime() { return state === 'play' ? 2 - .8 * Math.min(1, (t - startAt) / GAME_S) : 1.3; } // 2초 → 끝날 무렵 1.2초(눈을 옮기고 DWELL만큼 바라볼 시간)
+  // 바라보는 영역: 구멍과 튀어나온 두더지 몸(구멍 폭 2.4배). 시선 오차가 있어 그림보다 조금 넓다
+  function looking(hole) {
+    return Math.abs(gaze.x - hole.x) < hole.rx * 1.2 && gaze.y > hole.y - hole.rx * 1.6 && gaze.y < hole.y + hole.ry * 1.6;
+  }
   function spawn() {
     const choices = holes.filter(h => h !== moles.at(-1)?.hole);
     const hole = pick(choices), kind = state === 'play' && Math.random() < .12 ? 'gold' : 'normal';
-    current = {hole, kind, born: t, until: t + upTime(), rise: 0, caught: false, hitAt: null, phase: rand(0, TAU)};
+    current = {hole, kind, born: t, until: t + upTime(), rise: 0, caught: false, hitAt: null, phase: rand(0, TAU), dwell: 0};
     moles.push(current);
     if (state === 'play') Sound.play('pop');
     parts.emit(hole.x, hole.y, {count: 10, color: [150, 105, 60], speed: [40, 140], angle: -Math.PI / 2, spread: 1.1, gravity: 600, life: [.3, .6], size: [1.5, 3.5], jitter: hole.rx * .5});
   }
-  function whack(hole) {
-    if (state !== 'play') return;
-    const m = current;
-    if (!m || m.hole !== hole || m.caught || t > m.until + GRACE) { // 빈 구멍: 점수를 깎고 연속을 끊는다
-      score = Math.max(0, score - WRONG); combo = 0; wrong++;
-      popups.add(hole.x, hole.y - hole.rx * .6, `-${WRONG}`, {color: '#fca5a5', size: 26, life: .8});
-      Sound.play('thud');
-      parts.emit(hole.x, hole.y, {count: 8, color: [190, 160, 120], speed: [20, 80], life: [.4, .8], size: [6, 12], grow: 1.2, alpha: .4});
-      return;
-    }
+  function whack(m) {
+    const {hole} = m;
     m.caught = true; m.hitAt = t; current = null; next = t + .55;
     combo++; caught++; maxCombo = Math.max(maxCombo, combo);
     const gold = m.kind === 'gold', points = (gold ? 300 : 100) + 20 * Math.min(combo - 1, 10);
@@ -175,20 +161,19 @@
     shake.add(gold ? 9 : 6);
     Sound.play('whack'); if (gold) Sound.play('gold');
   }
-  holes.forEach(hole => { hole.button.onclick = () => whack(hole); });
 
   function start() {
     state = 'ready'; readyUntil = t + 1.4;
-    moles = []; current = null; score = 0; caught = 0; missed = 0; wrong = 0; combo = 0; maxCombo = 0;
+    moles = []; current = null; score = 0; caught = 0; missed = 0; combo = 0; maxCombo = 0;
     $('#start').hidden = $('#over').hidden = true;
-    banner('준비', '두더지를 보고 입을 벌렸다 다무세요', 0);
+    banner('준비', '두더지가 나오면 바라보세요', 0);
     Sound.play('start');
   }
   function end() {
     state = 'over'; current = null; next = t + 1;
     const rec = best('mole', score);
     $('#result').textContent = `${score.toLocaleString()}점`;
-    $('#summary').textContent = `시간이 끝났습니다. ${caught}마리를 잡고 ${missed}마리를 놓쳤고, 빈 구멍을 ${wrong}번 눌렀습니다. 가장 길게 이어 잡은 것은 ${maxCombo}마리입니다.`;
+    $('#summary').textContent = `시간이 끝났습니다. ${caught}마리를 잡고 ${missed}마리를 놓쳤습니다. 가장 길게 이어 잡은 것은 ${maxCombo}마리입니다.`;
     $('#overBest').textContent = rec.isNew ? '새 최고 기록입니다.' : rec.best ? `최고 기록 ${rec.best.toLocaleString()}점` : '';
     $('#over').hidden = false;
     Sound.play('over');
@@ -200,7 +185,12 @@
       if (left <= 10 && Math.ceil(left) !== lastTick) { lastTick = Math.ceil(left); Sound.play('tick'); }
       if (left <= 0) end();
     }
-    if (current && !current.caught && t > current.until + GRACE) { // 끝내 못 잡음
+    if (current && state === 'play' && t < current.until && current.rise > .5) { // 응시: 바라보면 고리가 차고, 떼면 줄어든다. 시선이 끊긴 동안(얼굴 잃음·입 벌림)은 그대로 둔다
+      if (looking(current.hole)) current.dwell += dt / DWELL;
+      else if (!gazeLost()) current.dwell = Math.max(0, current.dwell - dt / DWELL * DECAY);
+      if (current.dwell >= 1) whack(current);
+    }
+    if (current && !current.caught && t > current.until) { // 끝내 못 잡음
       if (state === 'play') {
         missed++; combo = 0;
         popups.add(current.hole.x, current.hole.y - current.hole.rx * .6, '놓침', {color: '#d6d3d1', size: 22, life: .8});
@@ -272,6 +262,16 @@
       }
     }
   }
+  function drawRing(m) { // 응시 진행 고리
+    if (m.hitAt !== null || m.dwell <= 0 || t > m.until) return;
+    const {hole} = m, r = hole.rx * 1.05, cy = hole.y - hole.rx * .55;
+    ctx.save();
+    ctx.lineWidth = Math.max(4, hole.rx * .07); ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.arc(hole.x, cy, r, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = m.kind === 'gold' ? '#fde047' : '#fff';
+    ctx.beginPath(); ctx.arc(hole.x, cy, r, -Math.PI / 2, -Math.PI / 2 + TAU * Math.min(1, m.dwell)); ctx.stroke();
+    ctx.restore();
+  }
   function drawPaws(m) { // 구멍 가장자리를 짚은 앞발(앞쪽 둔덕 위에 그린다)
     if (m.rise < .85 || m.hitAt !== null) return;
     const {hole} = m, s = hole.rx / 100;
@@ -286,6 +286,7 @@
     for (const m of moles) drawMole(m);
     ctx.drawImage(scene.front, -20, -20, w + 40, h + 40);
     for (const m of moles) drawPaws(m);
+    for (const m of moles) drawRing(m);
     parts.draw(ctx);
     popups.draw(ctx);
     ctx.restore();
