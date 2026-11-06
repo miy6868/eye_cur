@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>덧셈 곱셈</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .actions .cta, .actions .alt { min-width: 190px; }
+</style>
+<!-- 덧셈 곱셈: 칠판 가운데 문제가 나오고, 네 귀퉁이 답 중 맞는 것을 제한 시간 안에 잠깐 바라보면 고른다. 클릭은 없다(시작 버튼만 입 클릭·마우스) -->
+<canvas id="canvas"></canvas>
+<div class="hud">
+  <a class="stat exit" href="games.html">← 목록</a>
+  <span class="grow"></span>
+  <span class="stat">연속 <b id="combo">-</b></span>
+  <span class="stat" id="timePill">남은 시간 <b id="time">60</b></span>
+  <span class="stat">점수 <b id="score">0</b></span>
+</div>
+<div class="banner" id="banner" hidden></div>
+<div class="banner" id="notice" hidden><div>시선을 찾는 중<small>화면을 바라보고 입을 다물면 이어집니다</small></div></div>
+<section class="screen" id="start">
+  <div class="panel">
+    <h1>덧셈 곱셈</h1>
+    <p>가운데 문제의 답을 네 칸 중에서 찾아 잠깐 바라보세요. 칸이 다 차면 고른 것입니다. 클릭은 필요 없습니다.</p>
+    <ul class="rules">
+      <li>60초 동안 맞힌 만큼 점수를 받습니다. 빨리 맞힐수록 더 받습니다.</li>
+      <li>문제마다 제한 시간이 있고, 갈수록 짧아지고 어려워집니다.</li>
+      <li>틀리거나 시간이 지나면 연속이 끊깁니다.</li>
+    </ul>
+    <div class="actions">
+      <button class="cta" data-mode="add">덧셈</button>
+      <button class="cta" data-mode="mul">곱셈</button>
+      <button class="cta" data-mode="mix">섞어서</button>
+    </div>
+    <p id="startBest"></p>
+  </div>
+</section>
+<section class="screen" id="over" hidden>
+  <div class="panel">
+    <h1 id="result"></h1>
+    <p id="summary"></p>
+    <p id="overBest"></p>
+    <div class="actions"><button class="cta" id="again">다시 하기</button><button class="alt" id="change">셈 바꾸기</button><a class="alt" href="games.html">게임 목록</a></div>
+  </div>
+</section>
+<script src="gaze.js"></script>
+<script src="kit.js"></script>
+<script>
+  const GAME_S = 60;
+  const DWELL = .6;      // 이만큼(초) 바라보면 고른다. 숫자를 읽는 동안 잘못 골라지지 않게 두더지보다 조금 길다
+  const DECAY = 1.5;     // 눈을 떼면 칸이 줄어드는 빠르기(채우는 빠르기의 배수)
+  const LOOK_PAD = 40;   // 칸 밖으로 이만큼(px)까지 바라본 것으로 친다(시선 오차). 위아래 칸 사이가 멀어 겹치지 않는다
+  const SHOW_S = .9;     // 답을 고른 뒤 맞음·틀림을 보여 주는 시간
+  const OPS = {add: '+', mul: '×'};
+  const parts = new Particles(), popups = new Popups();
+  const scene = {}, tiles = [0, 1, 2, 3].map(() => ({})), problem = {};
+  let state = 'attract', mode = 'add', t = 0, readyUntil = 0, startAt = 0, lastTick = 0;
+  let q = null, score = 0, right = 0, wrong = 0, late = 0, combo = 0, maxCombo = 0;
+  const view = setupCanvas($('#canvas'), build);
+  const {ctx} = view;
+
+  // 칠판: 네 귀퉁이에 답 칸, 가운데에 문제(위아래 칸 사이가 멀어야 시선이 헷갈리지 않는다)
+  function build({w, h}) {
+    const tw = Math.min(w * .36, 560), th = h * .2;
+    [[.26, .37], [.74, .37], [.26, .81], [.74, .81]].forEach(([fx, fy], i) => Object.assign(tiles[i], {x: fx * w, y: fy * h, w: tw, h: th}));
+    Object.assign(problem, {x: w / 2, y: h * .59, size: Math.min(w * .08, h * .12)});
+    const frame = Math.min(w, h) * .03;
+    scene.board = sprite(w, h, g => {
+      const wood = g.createLinearGradient(0, 0, w, h);
+      wood.addColorStop(0, '#7a5232'); wood.addColorStop(.5, '#5e3c22'); wood.addColorStop(1, '#4a2e19');
+      g.fillStyle = wood; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 120; i++) { // 나뭇결
+        g.strokeStyle = `rgba(30,15,5,${rand(.05, .18)})`; g.lineWidth = rand(.5, 2);
+        const y = rand(0, h); g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(w * .3, y + rand(-8, 8), w * .7, y + rand(-8, 8), w, y + rand(-6, 6)); g.stroke();
+      }
+      const bx = frame, by = frame, bw = w - frame * 2, bh = h - frame * 2;
+      const board = g.createRadialGradient(w * .45, h * .4, 0, w / 2, h / 2, Math.hypot(w, h) * .6);
+      board.addColorStop(0, '#2f4d3e'); board.addColorStop(.6, '#253f33'); board.addColorStop(1, '#1a2e25');
+      g.fillStyle = board; g.fillRect(bx, by, bw, bh);
+      g.save(); g.beginPath(); g.rect(bx, by, bw, bh); g.clip();
+      for (let i = 0; i < 26; i++) { // 지우개로 지운 자국
+        g.strokeStyle = `rgba(220,235,225,${rand(.01, .03)})`; g.lineWidth = rand(30, 90); g.lineCap = 'round';
+        const x = rand(0, w), y = rand(0, h), len = rand(80, 320), a = rand(-.4, .4);
+        g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + len * .5, y + rand(-30, 30), x + Math.cos(a) * len, y + Math.sin(a) * len); g.stroke();
+      }
+      for (let i = 0; i < w * h / 900; i++) { g.fillStyle = `rgba(230,240,232,${rand(.02, .07)})`; g.fillRect(rand(bx, bx + bw), rand(by, by + bh), rand(1, 2.5), rand(1, 2.5)); } // 분필 가루
+      g.restore();
+      g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 3; g.strokeRect(bx, by, bw, bh);
+      g.fillStyle = '#3b2412'; g.fillRect(bx, h - frame * 1.1, bw, frame * .5); // 분필 받침
+      [[.62, '#f5f5ef'], [.66, '#f4d77a'], [.69, '#f2a3a3']].forEach(([fx, color]) => { g.fillStyle = color; g.fillRect(w * fx, h - frame * 1.35, w * .025, frame * .3); });
+    });
+    scene.vignette = vignette(w, h, [0, 0, 0], .45);
+  }
+
+  // 분필 글씨: 조금 비껴 두 번 그려 거친 느낌을 낸다
+  function chalkText(text, x, y, size, color = '#f1f5ef', alpha = 1) {
+    ctx.save();
+    ctx.font = `700 ${size}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = color;
+    ctx.globalAlpha = alpha * .35; ctx.fillText(text, x + 1.5, y + 1);
+    ctx.globalAlpha = alpha * .9; ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+  function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+
+  const int = (a, b) => Math.floor(rand(a, b + 1));
+  function shuffle(list) { for (let i = list.length - 1; i > 0; i--) { const j = int(0, i); [list[i], list[j]] = [list[j], list[i]]; } return list; }
+  // 맞힌 수가 늘수록 어려워진다
+  function makeProblem() {
+    const op = mode === 'mix' ? pick(['add', 'mul']) : mode, level = right;
+    let a, b;
+    if (op === 'add') {
+      if (level < 4) { a = int(1, 9); b = int(1, 9); }
+      else if (level < 10) { a = int(10, 49); b = int(2, 9); }
+      else { a = int(10, 59); b = int(10, 39); }
+    } else {
+      if (level < 5) { a = int(2, 5); b = int(2, 9); }
+      else if (level < 12) { a = int(2, 9); b = int(2, 9); }
+      else { a = int(11, 15); b = int(2, 9); }
+    }
+    const answer = op === 'add' ? a + b : a * b;
+    // 헷갈릴 만한 오답: 1·2·10 차이, 곱셈은 한 단 옆
+    const near = op === 'add' ? [1, -1, 2, -2, 10, -10].map(d => answer + d) : [a * (b + 1), a * (b - 1), (a + 1) * b, (a - 1) * b, answer + 1, answer - 1, answer + 10];
+    const wrongs = shuffle([...new Set(near)].filter(n => n > 0 && n !== answer)).slice(0, 3);
+    return {a, b, op, answer, choices: shuffle([answer, ...wrongs])};
+  }
+  function limit() { return 8 - 3.5 * Math.min(1, (t - startAt) / GAME_S); } // 문제마다 8초 → 끝날 무렵 4.5초
+  function next() {
+    q = {...makeProblem(), born: t, limit: limit(), picked: null, result: null, at: 0, dwell: [0, 0, 0, 0]};
+    // 방금 고른 칸을 계속 보고 있으면 새 답이 바로 골라진다. 그 칸은 눈을 한 번 뗀 뒤부터 센다
+    q.armed = tiles.map(tile => !looking(tile));
+  }
+  function looking(tile) {
+    return Math.abs(gaze.x - tile.x) < tile.w / 2 + LOOK_PAD && Math.abs(gaze.y - tile.y) < tile.h / 2 + LOOK_PAD;
+  }
+  function choose(i) {
+    const tile = tiles[i], ok = q.choices[i] === q.answer;
+    q.picked = i; q.result = ok ? 'right' : 'wrong'; q.at = t;
+    if (ok) {
+      right++; combo++; maxCombo = Math.max(maxCombo, combo);
+      const quick = Math.max(0, 1 - (t - q.born) / q.limit), points = 100 + Math.round(quick * 60) + 10 * Math.min(combo - 1, 10);
+      score += points;
+      popups.add(tile.x, tile.y - tile.h * .7, `+${points}`, {color: '#fff', size: 34});
+      if (combo >= 3) popups.add(tile.x, tile.y - tile.h * .7 - 40, `${combo}연속`, {color: '#f4d77a', size: 22, life: 1.1});
+      parts.emit(tile.x, tile.y, {count: 26, color: [235, 240, 230], speed: [60, 260], gravity: 500, life: [.4, .9], size: [1.5, 3.5], jitter: tile.w * .25});
+      Sound.play('pickup');
+    } else {
+      wrong++; combo = 0;
+      shake.add(4);
+      Sound.play('miss');
+    }
+  }
+  function update(dt) {
+    if (state === 'ready' && t > readyUntil) { state = 'play'; startAt = t; banner('시작!', '', 600); Sound.play('go'); next(); }
+    if (state === 'play') {
+      const left = GAME_S - (t - startAt);
+      if (left <= 10 && Math.ceil(left) !== lastTick) { lastTick = Math.ceil(left); Sound.play('tick'); }
+      if (left <= 0) { end(); return; }
+      if (q.result) { if (t - q.at > SHOW_S) next(); }
+      else if (t - q.born > q.limit) { q.result = 'late'; q.at = t; late++; combo = 0; Sound.play('miss'); }
+      else tiles.forEach((tile, i) => {
+        const on = looking(tile);
+        if (!on) q.armed[i] = true;
+        if (on && q.armed[i]) q.dwell[i] += dt / DWELL;
+        else if (!gazeLost()) q.dwell[i] = Math.max(0, q.dwell[i] - dt / DWELL * DECAY);
+        if (q.dwell[i] >= 1 && !q.result) choose(i);
+      });
+    }
+    parts.update(dt); popups.update(dt);
+  }
+
+  function drawTile(tile, i) {
+    const {x, y, w, h} = tile, left = x - w / 2, top = y - h / 2, r = 14;
+    const value = q?.choices[i], fill = q && !q.result ? Math.min(1, q.dwell[i]) : 0;
+    const isAnswer = q?.result && value === q.answer, isPicked = q?.picked === i;
+    ctx.save();
+    if (fill > 0) { // 바라보는 만큼 아래에서 위로 차오른다
+      ctx.save(); roundRect(left, top, w, h, r); ctx.clip();
+      ctx.fillStyle = 'rgba(244,215,122,.22)'; ctx.fillRect(left, top + h * (1 - fill), w, h * fill);
+      ctx.restore();
+    }
+    if (isAnswer) { ctx.fillStyle = 'rgba(134,239,172,.16)'; roundRect(left, top, w, h, r); ctx.fill(); }
+    ctx.strokeStyle = isAnswer ? '#86efac' : fill > 0 ? 'rgba(244,215,122,.9)' : 'rgba(241,245,239,.5)';
+    ctx.lineWidth = isAnswer || fill > 0 ? 5 : 3;
+    roundRect(left, top, w, h, r); ctx.stroke();
+    ctx.restore();
+    if (value !== undefined) chalkText(String(value), x, y + 2, h * .52, '#f1f5ef', q.result && !isAnswer && !isPicked ? .35 : 1);
+    if (isPicked && q.result === 'wrong') { // 고른 오답에 분홍 X
+      ctx.save(); ctx.strokeStyle = 'rgba(242,163,163,.95)'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+      const s = h * .32; ctx.beginPath(); ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y + s); ctx.moveTo(x + s, y - s); ctx.lineTo(x - s, y + s); ctx.stroke();
+      ctx.restore();
+    }
+  }
+  function drawProblem() {
+    const {x, y, size} = problem;
+    if (!q) { if (state === 'attract') chalkText('7 × 8 = ?', x, y, size, '#f1f5ef', .8); return; }
+    chalkText(`${q.a} ${OPS[q.op]} ${q.b} = ${q.result ? q.answer : '?'}`, x, y, size); // 고른 뒤에는 답을 보여 준다
+    if (q.result === 'late') chalkText('시간 끝', x, y + size * .9, size * .35, '#f2a3a3');
+    else if (q.result === 'wrong') chalkText('아쉬워요', x, y + size * .9, size * .35, '#f2a3a3');
+    else if (!q.result) { // 문제의 남은 시간: 분필 선이 줄어든다
+      const k = Math.max(0, 1 - (t - q.born) / q.limit), bw = Math.min(view.w * .36, 520), by = y + size * .85;
+      ctx.save(); ctx.lineCap = 'round'; ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(241,245,239,.15)'; ctx.beginPath(); ctx.moveTo(x - bw / 2, by); ctx.lineTo(x + bw / 2, by); ctx.stroke();
+      ctx.strokeStyle = k * q.limit < 2 ? '#f2a3a3' : 'rgba(241,245,239,.85)';
+      ctx.beginPath(); ctx.moveTo(x - bw / 2, by); ctx.lineTo(x - bw / 2 + bw * k, by); ctx.stroke();
+      ctx.restore();
+    }
+  }
+  function draw(dt) {
+    const {w, h} = view;
+    ctx.save();
+    shake.apply(ctx, dt);
+    ctx.drawImage(scene.board, -10, -10, w + 20, h + 20);
+    tiles.forEach(drawTile);
+    drawProblem();
+    parts.draw(ctx);
+    popups.draw(ctx);
+    ctx.restore();
+    ctx.drawImage(scene.vignette, 0, 0, w, h);
+  }
+
+  function start(chosen = mode) {
+    mode = chosen; state = 'ready'; readyUntil = t + 1.4;
+    q = null; score = 0; right = 0; wrong = 0; late = 0; combo = 0; maxCombo = 0; lastTick = 0;
+    $('#start').hidden = $('#over').hidden = true;
+    banner('준비', '답을 찾아 잠깐 바라보세요', 0);
+    Sound.play('start');
+  }
+  function end() {
+    state = 'over'; q = null;
+    const rec = best('math', score);
+    $('#result').textContent = `${score.toLocaleString()}점`;
+    $('#summary').textContent = `시간이 끝났습니다. ${right}문제를 맞히고 ${wrong}문제를 틀렸고, ${late}문제는 시간이 지났습니다. 가장 길게 이어 맞힌 것은 ${maxCombo}문제입니다.`;
+    $('#overBest').textContent = rec.isNew ? '새 최고 기록입니다.' : rec.best ? `최고 기록 ${rec.best.toLocaleString()}점` : '';
+    $('#over').hidden = false;
+    Sound.play('over');
+  }
+  let shown = {};
+  function hud() {
+    const left = state === 'play' ? Math.max(0, Math.ceil(GAME_S - (t - startAt))) : state === 'over' ? 0 : GAME_S;
+    const values = {score: score.toLocaleString(), left, combo: combo >= 2 ? `×${combo}` : '-'};
+    if (values.score !== shown.score) $('#score').textContent = values.score;
+    if (values.combo !== shown.combo) $('#combo').textContent = values.combo;
+    if (values.left !== shown.left) { $('#time').textContent = values.left; $('#timePill').classList.toggle('danger', state === 'play' && left <= 10); }
+    shown = values;
+  }
+  const tick = clock();
+  let paused = false;
+  function frame(now) {
+    const dt = tick(now);
+    const lost = state === 'play' && gazeLost(); // 시선이 끊긴 동안(얼굴 잃음·입 벌림)은 시간도 멈춘다
+    if (lost !== paused) { paused = lost; $('#notice').hidden = !lost; }
+    if (!lost) t += dt;
+    update(lost ? 0 : dt);
+    draw(dt);
+    hud();
+    requestAnimationFrame(frame);
+  }
+  const record0 = best('math', 0).best;
+  $('#startBest').textContent = record0 ? `최고 기록 ${record0.toLocaleString()}점` : '';
+  for (const button of document.querySelectorAll('[data-mode]')) button.onclick = () => start(button.dataset.mode);
+  $('#again').onclick = () => start();
+  $('#change').onclick = () => { $('#over').hidden = true; $('#start').hidden = false; };
+  requestAnimationFrame(frame);
+</script>
+</html>

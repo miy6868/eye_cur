@@ -24,7 +24,7 @@ canvas { position: fixed; inset: 0; display: block; }
 .choice { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 48px; background: #fff; border: 2px solid var(--line); border-radius: 14px; cursor: pointer; }
 .choice h2 { margin: 0 0 10px; font-size: 48px; font-weight: 800; }
 .choice p { margin: 0; max-width: 30ch; color: var(--muted); font-size: 20px; }
-/* 게임 목록: 가로로 큰 칸 세 개(위는 실제 게임 화면). 세로 줄보다 시선으로 고르기 쉽다(사용자) */
+/* 게임 목록: 가로로 큰 칸(게임 수만큼)(위는 실제 게임 화면). 세로 줄보다 시선으로 고르기 쉽다(사용자) */
 .list { flex: 1; min-height: 0; display: flex; gap: 20px; }
 .row { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 10px 10px 24px; background: #fff; border: 2px solid var(--line); border-radius: 14px; cursor: pointer; }
 .row img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; background: #222; }
