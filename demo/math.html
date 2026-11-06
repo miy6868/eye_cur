@@ -21,7 +21,7 @@
 <section class="screen" id="start">
   <div class="panel">
     <h1>덧셈 곱셈</h1>
-    <p>가운데 문제의 답을 네 칸 중에서 찾아 잠깐 바라보세요. 칸이 다 차면 고른 것입니다. 클릭은 필요 없습니다.</p>
+    <p>가운데 문제 둘레에 네 귀퉁이 칸의 숫자가 방향대로 나옵니다. 가운데에서 답을 찾은 뒤 그 쪽 칸을 잠깐 바라보세요. 칸이 다 차면 고른 것입니다. 클릭은 필요 없습니다.</p>
     <ul class="rules">
       <li>60초 동안 맞힌 만큼 점수를 받습니다. 빨리 맞힐수록 더 받습니다.</li>
       <li>문제마다 제한 시간이 있고, 갈수록 짧아지고 어려워집니다.</li>
@@ -60,11 +60,15 @@
   const view = setupCanvas($('#canvas'), build);
   const {ctx} = view;
 
-  // 칠판: 네 귀퉁이에 답 칸, 가운데에 문제(위아래 칸 사이가 멀어야 시선이 헷갈리지 않는다)
+  // 칠판: 답 칸은 네 귀퉁이 끝으로 빼고, 가운데는 비워 문제와 '어느 쪽에 어떤 숫자'를 보여 준다.
+  // 답을 읽으러 칸을 보면 그대로 골라져 버렸다(사용자). 가운데에서 다 읽고 고를 칸만 보러 가게 한다
   function build({w, h}) {
-    const tw = Math.min(w * .42, 760), th = h * .3; // 처음 .36w × .2h, 다음 .25h도 작았다(사용자)
-    [[.25, .32], [.75, .32], [.25, .79], [.75, .79]].forEach(([fx, fy], i) => Object.assign(tiles[i], {x: fx * w, y: fy * h, w: tw, h: th}));
-    Object.assign(problem, {x: w / 2, y: h * .555, size: Math.min(w * .065, h * .085)});
+    const tw = Math.min(w * .3, 560), th = h * .28;
+    [[.18, .25], [.82, .25], [.18, .8], [.82, .8]].forEach(([fx, fy], i) => Object.assign(tiles[i], {x: fx * w, y: fy * h, w: tw, h: th}));
+    Object.assign(problem, {x: w / 2, y: h * .5, size: Math.min(w * .06, h * .08)});
+    // 가운데 미리 보기: 문제 둘레 네 방향에 각 칸의 숫자(칸과 같은 방향)
+    const dx = w * .09, dy = h * .16; // 칸 밖 여유(LOOK_PAD)에 닿지 않게 가운데 쪽에 둔다
+    tiles.forEach((tile, i) => Object.assign(tile, {hint: {x: w / 2 + (i % 2 ? dx : -dx), y: h * .5 + (i < 2 ? -dy : dy), dir: [i % 2 ? 1 : -1, i < 2 ? -1 : 1]}}));
     const frame = Math.min(w, h) * .03;
     scene.board = sprite(w, h, g => {
       const wood = g.createLinearGradient(0, 0, w, h);
@@ -231,6 +235,24 @@
       roundRect(tile.x - w / 2, tile.y - h / 2, w, h, 18); ctx.stroke(); ctx.restore();
     }
   }
+  function drawHints() { // 가운데 미리 보기: 화살표가 그 숫자의 칸 쪽을 가리킨다
+    if (!q) return;
+    const size = problem.size * .8, appear = clamp((t - q.born) / .3, 0, 1);
+    tiles.forEach((tile, i) => {
+      const {x, y, dir: [sx, sy]} = tile.hint, value = q.choices[i];
+      const isAnswer = q.result && value === q.answer, isPicked = q.picked === i, fill = !q.result ? Math.min(1, q.dwell[i]) : 0;
+      const color = isAnswer ? '#86efac' : isPicked && q.result === 'wrong' ? '#f2a3a3' : fill > 0 ? '#f4d77a' : '#f1f5ef';
+      const alpha = (q.result && !isAnswer && !isPicked ? .3 : .9) * appear;
+      const ax = x + sx * size * 1.25, ay = y + sy * size * .75; // 화살표는 숫자 바깥쪽(칸 방향)
+      ctx.save();
+      ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      const len = size * .45, ex = ax + sx * len * .7, ey = ay + sy * len * .7;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ex, ey);
+      ctx.moveTo(ex - sx * len * .5, ey); ctx.lineTo(ex, ey); ctx.lineTo(ex, ey - sy * len * .5); ctx.stroke();
+      ctx.restore();
+      chalkText(String(value), x, y, size, color, alpha);
+    });
+  }
   function drawProblem() {
     const {x, y, size} = problem;
     if (!q) { if (state === 'attract') chalkText('7 × 8 = ?', x, y, size, '#f1f5ef', .8); return; }
@@ -246,7 +268,7 @@
     if (q.result === 'late') chalkText('시간 끝', x, y + size * .9, size * .35, '#f2a3a3');
     else if (q.result === 'wrong') chalkText('아쉬워요', x, y + size * .9, size * .35, '#f2a3a3');
     else if (!q.result) { // 문제의 남은 시간: 분필 선이 줄어든다
-      const k = Math.max(0, 1 - (t - q.born) / q.limit), bw = Math.min(view.w * .36, 520), by = y + size * .62;
+      const k = Math.max(0, 1 - (t - q.born) / q.limit), bw = Math.min(view.w * .26, 420), by = y + size * .62;
       ctx.save(); ctx.lineCap = 'round'; ctx.lineWidth = 6;
       ctx.strokeStyle = 'rgba(241,245,239,.15)'; ctx.beginPath(); ctx.moveTo(x - bw / 2, by); ctx.lineTo(x + bw / 2, by); ctx.stroke();
       ctx.strokeStyle = k * q.limit < 2 ? '#f2a3a3' : 'rgba(241,245,239,.85)';
@@ -261,6 +283,7 @@
     ctx.drawImage(scene.board, -10, -10, w + 20, h + 20);
     tiles.forEach(drawTile);
     drawWaves();
+    drawHints();
     drawProblem();
     parts.draw(ctx);
     popups.draw(ctx);
