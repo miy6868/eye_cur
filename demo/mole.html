@@ -134,9 +134,12 @@
   }
 
   function upTime() { return state === 'play' ? 2 - .8 * Math.min(1, (t - startAt) / GAME_S) : 1.3; } // 2초 → 끝날 무렵 1.2초(눈을 옮기고 DWELL만큼 바라볼 시간)
-  // 바라보는 영역: 구멍과 튀어나온 두더지 몸(구멍 폭 2.4배). 시선 오차가 있어 그림보다 조금 넓다
+  // 바라보는 영역 = 화면에 그리는 고리 안(원). 시선 오차가 있어 두더지 그림보다 꽤 넓다. 구멍 폭 1.05배 원은 작았다(사용자)
+  const LOOK_R = 1.6; // 구멍 반지름(rx)의 배수
+  const ringOf = hole => ({x: hole.x, y: hole.y - hole.rx * .55, r: hole.rx * LOOK_R});
   function looking(hole) {
-    return Math.abs(gaze.x - hole.x) < hole.rx * 1.2 && gaze.y > hole.y - hole.rx * 1.6 && gaze.y < hole.y + hole.ry * 1.6;
+    const ring = ringOf(hole);
+    return Math.hypot(gaze.x - ring.x, gaze.y - ring.y) < ring.r;
   }
   function spawn() {
     const choices = holes.filter(h => h !== moles.at(-1)?.hole);
@@ -262,14 +265,14 @@
       }
     }
   }
-  function drawRing(m) { // 응시 진행 고리
-    if (m.hitAt !== null || m.dwell <= 0 || t > m.until) return;
-    const {hole} = m, r = hole.rx * 1.05, cy = hole.y - hole.rx * .55;
+  function drawRing(m) { // 응시 진행 고리. 두더지가 나와 있는 동안 늘 옅게 그려 바라볼 영역을 보여 준다
+    if (m.hitAt !== null || m.rise <= .5 || t > m.until) return;
+    const {x, y, r} = ringOf(m.hole);
     ctx.save();
-    ctx.lineWidth = Math.max(4, hole.rx * .07); ctx.lineCap = 'round';
-    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.arc(hole.x, cy, r, 0, TAU); ctx.stroke();
+    ctx.lineWidth = Math.max(4, m.hole.rx * .07); ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(255,255,255,.3)'; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
     ctx.strokeStyle = m.kind === 'gold' ? '#fde047' : '#fff';
-    ctx.beginPath(); ctx.arc(hole.x, cy, r, -Math.PI / 2, -Math.PI / 2 + TAU * Math.min(1, m.dwell)); ctx.stroke();
+    if (m.dwell > 0) { ctx.beginPath(); ctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + TAU * Math.min(1, m.dwell)); ctx.stroke(); }
     ctx.restore();
   }
   function drawPaws(m) { // 구멍 가장자리를 짚은 앞발(앞쪽 둔덕 위에 그린다)
