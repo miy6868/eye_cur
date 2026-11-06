@@ -55,15 +55,16 @@
   const parts = new Particles(), popups = new Popups();
   const scene = {}, tiles = [0, 1, 2, 3].map(() => ({})), problem = {};
   let state = 'attract', mode = 'add', t = 0, readyUntil = 0, startAt = 0, lastTick = 0;
+  let waves = []; // 맞힌 칸에서 퍼지는 테두리
   let q = null, score = 0, right = 0, wrong = 0, late = 0, combo = 0, maxCombo = 0;
   const view = setupCanvas($('#canvas'), build);
   const {ctx} = view;
 
   // 칠판: 네 귀퉁이에 답 칸, 가운데에 문제(위아래 칸 사이가 멀어야 시선이 헷갈리지 않는다)
   function build({w, h}) {
-    const tw = Math.min(w * .42, 760), th = h * .25; // 처음 .36w × .2h는 작았다(사용자)
-    [[.25, .35], [.75, .35], [.25, .8], [.75, .8]].forEach(([fx, fy], i) => Object.assign(tiles[i], {x: fx * w, y: fy * h, w: tw, h: th}));
-    Object.assign(problem, {x: w / 2, y: h * .565, size: Math.min(w * .07, h * .1)});
+    const tw = Math.min(w * .42, 760), th = h * .3; // 처음 .36w × .2h, 다음 .25h도 작았다(사용자)
+    [[.25, .32], [.75, .32], [.25, .79], [.75, .79]].forEach(([fx, fy], i) => Object.assign(tiles[i], {x: fx * w, y: fy * h, w: tw, h: th}));
+    Object.assign(problem, {x: w / 2, y: h * .555, size: Math.min(w * .065, h * .085)});
     const frame = Math.min(w, h) * .03;
     scene.board = sprite(w, h, g => {
       const wood = g.createLinearGradient(0, 0, w, h);
@@ -124,7 +125,7 @@
     const wrongs = shuffle([...new Set(near)].filter(n => n > 0 && n !== answer)).slice(0, 3);
     return {a, b, op, answer, choices: shuffle([answer, ...wrongs])};
   }
-  function limit() { return 8 - 3.5 * Math.min(1, (t - startAt) / GAME_S); } // 문제마다 8초 → 끝날 무렵 4.5초
+  function limit() { return 11 - 4 * Math.min(1, (t - startAt) / GAME_S); } // 문제마다 11초 → 끝날 무렵 7초. 8 → 4.5초는 빠듯했다(사용자)
   function next() {
     q = {...makeProblem(), born: t, limit: limit(), picked: null, result: null, at: 0, dwell: [0, 0, 0, 0]};
     // 방금 고른 칸을 계속 보고 있으면 새 답이 바로 골라진다. 그 칸은 눈을 한 번 뗀 뒤부터 센다
@@ -142,11 +143,19 @@
       score += points;
       popups.add(tile.x, tile.y - tile.h * .7, `+${points}`, {color: '#fff', size: 34});
       if (combo >= 3) popups.add(tile.x, tile.y - tile.h * .7 - 40, `${combo}연속`, {color: '#f4d77a', size: 22, life: 1.1});
-      parts.emit(tile.x, tile.y, {count: 26, color: [235, 240, 230], speed: [60, 260], gravity: 500, life: [.4, .9], size: [1.5, 3.5], jitter: tile.w * .25});
-      Sound.play('pickup');
+      const big = combo >= 3;
+      parts.emit(tile.x, tile.y, {count: big ? 44 : 30, color: [235, 240, 230], speed: [60, big ? 380 : 280], gravity: 500, life: [.4, 1], size: [1.5, 3.5], jitter: tile.w * .25});
+      for (const color of [[244, 215, 122], [242, 163, 163], [147, 197, 253], [134, 239, 172]]) // 색 분필 조각
+        parts.emit(tile.x, tile.y - tile.h * .2, {count: big ? 10 : 6, color, speed: [150, 420], angle: -Math.PI / 2, spread: 1.3, gravity: 900, drag: .4, life: [.7, 1.2], size: [2.5, 4.5], grow: 0});
+      parts.emit(tile.x, tile.y, {count: 12, color: [220, 230, 222], speed: [20, 90], life: [.6, 1.1], size: [10, 20], grow: 1.5, alpha: .25, jitter: tile.w * .3}); // 분필 가루 구름
+      waves.push({tile, born: t, color: [134, 239, 172]});
+      if (big) waves.push({tile, born: t + .12, color: [244, 215, 122]});
+      shake.add(big ? 5 : 3);
+      Sound.play('pickup'); if (combo % 5 === 0) Sound.play('gold');
     } else {
       wrong++; combo = 0;
-      shake.add(4);
+      shake.add(6);
+      parts.emit(tile.x, tile.y, {count: 14, color: [190, 200, 192], speed: [20, 110], life: [.5, .9], size: [8, 16], grow: 1.3, alpha: .3, jitter: tile.w * .3});
       Sound.play('miss');
     }
   }
@@ -157,15 +166,22 @@
       if (left <= 10 && Math.ceil(left) !== lastTick) { lastTick = Math.ceil(left); Sound.play('tick'); }
       if (left <= 0) { end(); return; }
       if (q.result) { if (t - q.at > SHOW_S) next(); }
-      else if (t - q.born > q.limit) { q.result = 'late'; q.at = t; late++; combo = 0; Sound.play('miss'); }
+      else if (t - q.born > q.limit) { q.result = 'late'; q.at = t; late++; combo = 0; shake.add(4); Sound.play('miss'); }
       else tiles.forEach((tile, i) => {
         const on = looking(tile);
         if (!on) q.armed[i] = true;
-        if (on && q.armed[i]) q.dwell[i] += dt / DWELL;
+        if (on && q.armed[i]) {
+          q.dwell[i] += dt / DWELL;
+          if (Math.random() < .5) { // 차오르는 선에서 분필 가루가 튄다
+            const fy = tile.y + tile.h / 2 - tile.h * Math.min(1, q.dwell[i]);
+            parts.emit(tile.x + rand(-.45, .45) * tile.w, fy, {count: 1, color: [244, 215, 122], speed: [20, 70], angle: -Math.PI / 2, spread: .8, gravity: 120, life: [.3, .6], size: [1, 2.2]});
+          }
+        }
         else if (!gazeLost()) q.dwell[i] = Math.max(0, q.dwell[i] - dt / DWELL * DECAY);
         if (q.dwell[i] >= 1 && !q.result) choose(i);
       });
     }
+    waves = waves.filter(wave => t - wave.born < .6);
     parts.update(dt); popups.update(dt);
   }
 
@@ -174,6 +190,19 @@
     const value = q?.choices[i], fill = q && !q.result ? Math.min(1, q.dwell[i]) : 0;
     const isAnswer = q?.result && value === q.answer, isPicked = q?.picked === i;
     ctx.save();
+    // 움직임: 새 문제에 칸이 하나씩 튀어나오고, 맞히면 통 튀고, 틀리면 좌우로 흔들린다
+    let scale = 1, dx = 0;
+    if (q) {
+      const k = clamp((t - q.born - i * .05) / .3, 0, 1);
+      scale = .82 + .18 * easeOutBack(k);
+      const since = t - q.at;
+      if (isPicked && q.result === 'right' && since < .35) scale *= 1 + .1 * Math.sin(since / .35 * Math.PI);
+      if (isPicked && q.result === 'wrong' && since < .45) dx = Math.sin(since * 55) * 14 * (1 - since / .45);
+      if (q.result && isAnswer && since < SHOW_S) light(ctx, [134, 239, 172], x, y, w * .55, .25 * (1 - since / SHOW_S));
+      if (isPicked && q.result === 'wrong' && since < .5) light(ctx, [242, 120, 120], x, y, w * .5, .3 * (1 - since / .5));
+    }
+    if (fill > 0) light(ctx, [244, 215, 122], x, y, w * .5, .18 * fill); // 바라보는 칸이 은은하게 밝아진다
+    ctx.translate(x + dx, y); ctx.scale(scale, scale); ctx.translate(-x, -y);
     if (fill > 0) { // 바라보는 만큼 아래에서 위로 차오른다
       ctx.save(); roundRect(left, top, w, h, r); ctx.clip();
       ctx.fillStyle = 'rgba(244,215,122,.22)'; ctx.fillRect(left, top + h * (1 - fill), w, h * fill);
@@ -183,18 +212,37 @@
     ctx.strokeStyle = isAnswer ? '#86efac' : fill > 0 ? 'rgba(244,215,122,.9)' : 'rgba(241,245,239,.5)';
     ctx.lineWidth = isAnswer || fill > 0 ? 5 : 3;
     roundRect(left, top, w, h, r); ctx.stroke();
+    if (value !== undefined) chalkText(String(value), x, y + 2, h * .48, isAnswer ? '#d9f99d' : '#f1f5ef', q.result && !isAnswer && !isPicked ? .35 : 1);
+    if (isPicked && q.result === 'wrong') { // 고른 오답에 분홍 X를 긋는다
+      const k = clamp((t - q.at) / .25, 0, 1), s = h * .3;
+      ctx.strokeStyle = 'rgba(242,163,163,.95)'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x - s, y - s); ctx.lineTo(x - s + 2 * s * Math.min(1, k * 2), y - s + 2 * s * Math.min(1, k * 2));
+      if (k > .5) { const k2 = (k - .5) * 2; ctx.moveTo(x + s, y - s); ctx.lineTo(x + s - 2 * s * k2, y - s + 2 * s * k2); }
+      ctx.stroke();
+    }
     ctx.restore();
-    if (value !== undefined) chalkText(String(value), x, y + 2, h * .52, '#f1f5ef', q.result && !isAnswer && !isPicked ? .35 : 1);
-    if (isPicked && q.result === 'wrong') { // 고른 오답에 분홍 X
-      ctx.save(); ctx.strokeStyle = 'rgba(242,163,163,.95)'; ctx.lineWidth = 7; ctx.lineCap = 'round';
-      const s = h * .32; ctx.beginPath(); ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y + s); ctx.moveTo(x + s, y - s); ctx.lineTo(x - s, y + s); ctx.stroke();
-      ctx.restore();
+  }
+  function drawWaves() { // 맞힌 칸에서 테두리가 퍼지며 사라진다
+    for (const {tile, born, color} of waves) {
+      const k = (t - born) / .6;
+      if (k < 0) continue;
+      const grow = 1 + easeOutCubic(k) * .25, w = tile.w * grow, h = tile.h * grow;
+      ctx.save(); ctx.globalAlpha = 1 - k; ctx.strokeStyle = rgba(color); ctx.lineWidth = 4 * (1 - k) + 1;
+      roundRect(tile.x - w / 2, tile.y - h / 2, w, h, 18); ctx.stroke(); ctx.restore();
     }
   }
   function drawProblem() {
     const {x, y, size} = problem;
     if (!q) { if (state === 'attract') chalkText('7 × 8 = ?', x, y, size, '#f1f5ef', .8); return; }
-    chalkText(`${q.a} ${OPS[q.op]} ${q.b} = ${q.result ? q.answer : '?'}`, x, y, size); // 고른 뒤에는 답을 보여 준다
+    // 고른 뒤에는 답을 보여 준다. 맞히면 통 튀고, 시간이 끝나면 흔들리고, 새 문제는 살짝 커지며 나온다
+    const since = t - q.at, left = q.limit - (t - q.born), appear = clamp((t - q.born) / .25, 0, 1);
+    let scale = .9 + .1 * easeOutBack(appear), dx = 0;
+    if (q.result === 'right' && since < .4) scale *= 1 + .15 * Math.sin(since / .4 * Math.PI);
+    if (q.result === 'late' && since < .45) dx = Math.sin(since * 50) * 12 * (1 - since / .45);
+    if (!q.result && left < 2) scale *= 1 + .03 * Math.sin(t * 18); // 시간이 얼마 안 남으면 두근거린다
+    ctx.save(); ctx.translate(x + dx, y); ctx.scale(scale, scale); ctx.translate(-x, -y);
+    chalkText(`${q.a} ${OPS[q.op]} ${q.b} = ${q.result ? q.answer : '?'}`, x, y, size, q.result === 'right' ? '#d9f99d' : '#f1f5ef', .4 + .6 * appear);
+    ctx.restore();
     if (q.result === 'late') chalkText('시간 끝', x, y + size * .9, size * .35, '#f2a3a3');
     else if (q.result === 'wrong') chalkText('아쉬워요', x, y + size * .9, size * .35, '#f2a3a3');
     else if (!q.result) { // 문제의 남은 시간: 분필 선이 줄어든다
@@ -212,6 +260,7 @@
     shake.apply(ctx, dt);
     ctx.drawImage(scene.board, -10, -10, w + 20, h + 20);
     tiles.forEach(drawTile);
+    drawWaves();
     drawProblem();
     parts.draw(ctx);
     popups.draw(ctx);
@@ -221,7 +270,7 @@
 
   function start(chosen = mode) {
     mode = chosen; state = 'ready'; readyUntil = t + 1.4;
-    q = null; score = 0; right = 0; wrong = 0; late = 0; combo = 0; maxCombo = 0; lastTick = 0;
+    q = null; waves = []; score = 0; right = 0; wrong = 0; late = 0; combo = 0; maxCombo = 0; lastTick = 0;
     $('#start').hidden = $('#over').hidden = true;
     banner('준비', '답을 찾아 잠깐 바라보세요', 0);
     Sound.play('start');
