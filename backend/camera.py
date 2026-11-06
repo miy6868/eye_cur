@@ -3,6 +3,7 @@ import functools
 import sys
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 import cv2
@@ -159,19 +160,47 @@ def choose_camera():
     print(f"카메라 {index}번 사용: {camera_name(index)}")
 
 
+class StallWatch:
+    """카메라가 멈췄는지(프레임이 너무 드물게 오는지) 판정한다. 시각(ms)은 밖에서 넣어 준다(테스트용).
+
+    Windows DSHOW는 오래 켜 두면 웹캠은 멀쩡한데 이 프로세스의 연결만 초당 1장꼴로 느려지는 일이 있었다
+    (서버 12분 실행 뒤, 다른 프로세스로 같은 카메라를 열면 28fps). 다시 열면 풀리므로 그때 다시 연다.
+    """
+    WINDOW_MS = 3000   # 이 시간 동안의 프레임 수로 판정한다. 막 열었을 때도 이만큼은 기다린다
+    MIN_FRAMES = 6     # 그 안에 정상 프레임이 이보다 적으면(2fps 미만) 멈춘 것. 어두운 곳·YUY2 1080p(5fps)보다 낮다
+    BACKOFF_MS = (0, 2000, 5000, 10000, 30000)  # 다시 열어도 그대로면 점점 늦게 다시 연다(카메라를 뽑은 경우 등)
+
+    def __init__(self, now):
+        self.frames = deque()
+        self.failures = 0  # 연속으로 다시 열었는데도 나아지지 않은 횟수
+        self.opened = now
+
+    def frame(self, ok, now):
+        if ok:
+            self.frames.append(now)
+        while self.frames and now - self.frames[0] > self.WINDOW_MS:
+            self.frames.popleft()
+        if now - self.opened < self.WINDOW_MS:
+            return False
+        if len(self.frames) >= self.MIN_FRAMES:
+            self.failures = 0  # 다시 연 뒤 한동안 정상이면 처음부터 다시 센다
+            return False
+        wait = self.BACKOFF_MS[min(self.failures, len(self.BACKOFF_MS) - 1)]
+        return now - self.opened >= self.WINDOW_MS + wait
+
+    def reopened(self, now):
+        self.failures += 1
+        self.frames.clear()
+        self.opened = now
+
+
 class LatestCamera:
-    def __init__(self, index):
-        self.cap = open_capture(index)
-        # 큰 크기는 압축 안 된 방식(YUYV)이면 USB 대역폭 때문에 10fps로 떨어지는 웹캠이 많아 MJPG를 먼저 요청한다.
-        # 카메라가 지원하지 않으면 무시되고, 실제로 나오는 크기는 Tracker가 프레임에서 읽는다.
-        # Windows DSHOW는 크기를 바꿀 때 형식을 기본(YUY2)으로 되돌려 크기 뒤에 한 번 더 요청해야 한다
-        # (학교 노트북 웹캠: 1280×720이 MJPG 먼저면 YUY2 10fps, 크기 뒤에 요청하면 MJPG 30fps)
-        width, height = CONFIG["camera_size"]
-        mjpg = cv2.VideoWriter_fourcc(*"MJPG")
-        self.cap.set(cv2.CAP_PROP_FOURCC, mjpg)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        self.cap.set(cv2.CAP_PROP_FOURCC, mjpg)
+    def __init__(self, index, opener=open_capture, clock=None):
+        self.index = index
+        self.opener = opener
+        self.clock = clock or (lambda: round(time.monotonic() * 1000))
+        self.reopens = 0  # 멈춰서 다시 연 횟수(테스트·기록용)
+        self.cap = self._open()
         if not self.cap.isOpened():
             self.cap.release()
             raise RuntimeError("웹캠을 열 수 없습니다. 카메라 권한과 config.toml의 camera_index를 확인하세요.")
@@ -183,16 +212,48 @@ class LatestCamera:
         self.thread = threading.Thread(target=self._capture, daemon=True, name="latest-camera")
         self.thread.start()
 
+    def _open(self):
+        cap = self.opener(self.index)
+        # 큰 크기는 압축 안 된 방식(YUYV)이면 USB 대역폭 때문에 10fps로 떨어지는 웹캠이 많아 MJPG를 먼저 요청한다.
+        # 카메라가 지원하지 않으면 무시되고, 실제로 나오는 크기는 Tracker가 프레임에서 읽는다.
+        # Windows DSHOW는 크기를 바꿀 때 형식을 기본(YUY2)으로 되돌려 크기 뒤에 한 번 더 요청해야 한다
+        # (학교 노트북 웹캠: 1280×720이 MJPG 먼저면 YUY2 10fps, 크기 뒤에 요청하면 MJPG 30fps)
+        width, height = CONFIG["camera_size"]
+        mjpg = cv2.VideoWriter_fourcc(*"MJPG")
+        cap.set(cv2.CAP_PROP_FOURCC, mjpg)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        cap.set(cv2.CAP_PROP_FOURCC, mjpg)
+        return cap
+
+    def _reopen(self):
+        # 반드시 옛 연결을 먼저 닫는다: 한 프로세스에서 같은 카메라를 두 번 열어 두고 하나를 닫으면
+        # 남은 쪽도 다시는 프레임을 못 받았다(DSHOW에서 직접 재현)
+        self.cap.release()
+        if self.stopping.is_set():
+            return
+        try:
+            self.cap = self._open()
+        except Exception:
+            # 여기서 예외가 나면 읽기 스레드가 끝나 서버를 재시작해야 했다. 빈 연결(읽으면 실패)로 두고 다음에 또 연다
+            self.cap = cv2.VideoCapture()
+        self.reopens += 1
+        print(f"카메라 프레임이 너무 느려져(2fps 미만) 카메라를 다시 열었습니다. ({self.reopens}번째)", flush=True)
+
     def _capture(self):
+        watch = StallWatch(self.clock())
         try:
             while not self.stopping.is_set():
                 ok, frame = self.cap.read()
                 with self.condition:
-                    self.latest = (ok, frame, round(time.monotonic() * 1000))
+                    self.latest = (ok, frame, self.clock())
                     self.sequence += 1
                     self.condition.notify_all()
                 if not ok:
                     self.stopping.wait(0.1)
+                if watch.frame(ok, self.clock()) and not self.stopping.is_set():
+                    self._reopen()
+                    watch.reopened(self.clock())
         finally:
             self.cap.release()
             with self.condition:
@@ -203,7 +264,7 @@ class LatestCamera:
             ready = self.condition.wait_for(
                 lambda: self.sequence > self.consumed or self.stopping.is_set(), timeout=2)
             if not ready or self.stopping.is_set():
-                return False, None, round(time.monotonic() * 1000)
+                return False, None, self.clock()
             self.consumed = self.sequence
             return self.latest
 

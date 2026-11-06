@@ -39,7 +39,7 @@
 | `backend/server.py` | FastAPI 서버(`/health`, `/demo/`(`demo/` 폴더 그대로), `/ws`). 세션은 동시에 1개만. 인증(origin + `runtime.json` 토큰) 뒤 맨 먼저 `settings`를 보낸다. 보정 기록은 `logs/pursuit.jsonl`에 한 줄씩 쌓인다(config.toml `save_calibration_log = false`면 저장 안 함) |
 | `backend/tracker.py` | 카메라 프레임 → `frame` 메시지. 시선 모델은 별도 스레드라 느려도 눈·입 판정 프레임은 막히지 않는다. 눈 감는 중·얼굴 잃음 직후 250ms와 500ms 넘게 늦은 시선 결과는 버린다. 얼굴을 여러 개 찾고 `FaceLock`이 사용자 얼굴을 고른다(처음엔 가장 큰 얼굴, 이후 같은 자리 얼굴, 훨씬 작은 뒷사람은 무시). 사람이 바뀌면 얼굴 잃음과 같이 입·눈 상태를 끊는다 |
 | `backend/gestures.py` | 눈·입 판정. 눈은 사람마다 평소 뜬 눈(80분위)을 기준으로 삼고, 눈·입 모두 문턱값 두 개로 상태가 깜빡이지 않게 한다 |
-| `backend/camera.py` | OS별 카메라 열기(Windows DSHOW / Linux V4L2)와 최신 프레임만 남기는 읽기 스레드. 큰 크기는 MJPG를 요청하지 않으면 YUYV로 10fps가 되는 웹캠이 있다. Windows DSHOW는 크기를 바꾸면 형식이 되돌아가 MJPG를 크기 뒤에 다시 요청해야 한다. 시작 때 고른 카메라 번호는 `CONFIG`에만 넣고 config.toml 파일은 바꾸지 않는다. 카메라 이름은 OpenCV가 주지 않아 Linux는 `/sys/class/video4linux`, Windows는 DirectShow 장치 목록(OpenCV DSHOW 번호와 같은 순서)을 ctypes COM 호출로 읽는다 |
+| `backend/camera.py` | OS별 카메라 열기(Windows DSHOW / Linux V4L2)와 최신 프레임만 남기는 읽기 스레드. 큰 크기는 MJPG를 요청하지 않으면 YUYV로 10fps가 되는 웹캠이 있다. Windows DSHOW는 크기를 바꾸면 형식이 되돌아가 MJPG를 크기 뒤에 다시 요청해야 한다. 시작 때 고른 카메라 번호는 `CONFIG`에만 넣고 config.toml 파일은 바꾸지 않는다. 카메라 이름은 OpenCV가 주지 않아 Linux는 `/sys/class/video4linux`, Windows는 DirectShow 장치 목록(OpenCV DSHOW 번호와 같은 순서)을 ctypes COM 호출로 읽는다. 오래 켜 두면 DSHOW 연결만 초당 1장꼴로 느려지는 일이 있어 `StallWatch`가 멈춤을 판정해 스스로 다시 연다 |
 | `backend/config.py`, `config.toml` | 모든 사용자 설정. config.toml은 git에 포함되고 사용자가 직접 고친다(BOM 있어도 읽음) |
 | `extension/manifest.json` | MV3. core·dom·frame.js는 모든 프레임에 자동으로 들어가고, content.js는 워커가 지금 탭에만 주입한다. `words/*.json`은 web_accessible_resources |
 | `extension/worker.js` | 서비스 워커: 서버 소켓 1개, 지금 보는 탭 하나에만 붙인다. 보정·서버 `settings`를 기억했다가 새로 붙는 탭에 넘긴다. iframe 중계, 탭 목록·전환, 실행 중 화면 꺼짐 방지 |
@@ -63,7 +63,7 @@
 | `tests/worker.test.cjs` | worker.js를 가짜 `chrome`·WebSocket·타이머로 `vm`에서 실행(`harness()`). 탭 전환, 재연결, 보정 저장/폐기, 초점 처리, iframe 중계, 탭 고르기(`listTabs`/`switchTab`) |
 | `tests/test_backend.py` | `/health`, `/demo` 페이지들, 소켓 인증·정리·처음 `settings`, 보정 기록 저장 |
 | `tests/test_face_lock.py` | 여러 얼굴 중 사용자 얼굴 고르기(가장 큰 얼굴, 따라가기, 뒷사람 무시, 잊기) |
-| `tests/test_gestures.py`, `test_normalization.py`, `test_tracker_async.py`, `test_camera.py` | 눈·입 판정, 얼굴 정규화·머리 각도·텐서, 느린 모델이 눈 프레임을 막지 않는지, 카메라 선택 |
+| `tests/test_gestures.py`, `test_normalization.py`, `test_tracker_async.py`, `test_camera.py` | 눈·입 판정, 얼굴 정규화·머리 각도·텐서, 느린 모델이 눈 프레임을 막지 않는지, 카메라 선택·멈춤 판정·다시 열기(가짜 카메라) |
 
 ## 메시지
 서버 ↔ 워커 (`/ws`, JSON)
@@ -94,6 +94,7 @@ config.toml 밖에 있는 값:
 | 떨림 필터 목록·기본 | `extension/content.js` `filterChoices`, `filterIndex` |
 | 드리프트 보정 | `extension/core.js` `DRIFT_GAIN`/`DRIFT_MAX_SIZE_PX`, 켜기는 content.js `CLICK_DRIFT` |
 | 눈 크기 경고 여유 | `extension/core.js` `EYE_MARGIN` |
+| 카메라 멈춤 판정·다시 열기 간격 | `backend/camera.py` `StallWatch` |
 
 ## 함정
 - content.js는 탭마다 `executeScript`로 주입되고 `__gazeInstalled`로 한 번만 설치된다. 확장을 새로고침해도 이미 열린 탭에는 옛 스크립트가 남으므로 페이지도 새로고침해야 한다.
@@ -104,4 +105,5 @@ config.toml 밖에 있는 값:
 - 스크롤 모드에서는 `scroll` 이벤트가 `invalidate()`를 부르지 않는다(부르면 필터·입 클릭이 매번 끊긴다).
 - content.js의 `stopped` 메시지 처리는 워커가 보내지 않아 쓰이지 않는다. 워커 `stop()`은 `suspend`를 보내는데 content.js가 그 `message`를 표시하지 않는다.
 - `models/`에 옛 `GazeTR-H-ETH.pt`가 남아 있지만 코드는 쓰지 않는다(git 제외 폴더).
+- 한 프로세스에서 같은 카메라를 두 번 열어 두고 하나를 닫으면 남은 쪽도 다시는 프레임을 못 받는다(DSHOW). 카메라를 다시 열 때는 옛 연결을 먼저 닫는다.
 - Windows 경로에 한글이 있으면 MediaPipe가 모델 파일을 못 연다(setup/start가 검사).
