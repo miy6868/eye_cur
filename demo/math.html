@@ -49,7 +49,7 @@
   const GAME_S = 60;
   const DWELL = .6;      // 이만큼(초) 바라보면 고른다. 숫자를 읽는 동안 잘못 골라지지 않게 두더지보다 조금 길다
   const DECAY = 1.5;     // 눈을 떼면 칸이 줄어드는 빠르기(채우는 빠르기의 배수)
-  const LOOK_PAD = 40;   // 칸 밖으로 이만큼(px)까지 바라본 것으로 친다(시선 오차). 위아래 칸 사이가 멀어 겹치지 않는다
+  const LOOK_PAD = 30;   // 칸 밖으로 이만큼(px)까지 바라본 것으로 친다(시선 오차). 칸이 커서 여유는 조금만 둔다
   const SHOW_S = .9;     // 답을 고른 뒤 맞음·틀림을 보여 주는 시간
   const OPS = {add: '+', mul: '×'};
   const parts = new Particles(), popups = new Popups();
@@ -61,9 +61,9 @@
 
   // 칠판: 네 귀퉁이에 답 칸, 가운데에 문제(위아래 칸 사이가 멀어야 시선이 헷갈리지 않는다)
   function build({w, h}) {
-    const tw = Math.min(w * .36, 560), th = h * .2;
-    [[.26, .37], [.74, .37], [.26, .81], [.74, .81]].forEach(([fx, fy], i) => Object.assign(tiles[i], {x: fx * w, y: fy * h, w: tw, h: th}));
-    Object.assign(problem, {x: w / 2, y: h * .59, size: Math.min(w * .08, h * .12)});
+    const tw = Math.min(w * .42, 760), th = h * .25; // 처음 .36w × .2h는 작았다(사용자)
+    [[.25, .35], [.75, .35], [.25, .8], [.75, .8]].forEach(([fx, fy], i) => Object.assign(tiles[i], {x: fx * w, y: fy * h, w: tw, h: th}));
+    Object.assign(problem, {x: w / 2, y: h * .565, size: Math.min(w * .07, h * .1)});
     const frame = Math.min(w, h) * .03;
     scene.board = sprite(w, h, g => {
       const wood = g.createLinearGradient(0, 0, w, h);
@@ -198,7 +198,7 @@
     if (q.result === 'late') chalkText('시간 끝', x, y + size * .9, size * .35, '#f2a3a3');
     else if (q.result === 'wrong') chalkText('아쉬워요', x, y + size * .9, size * .35, '#f2a3a3');
     else if (!q.result) { // 문제의 남은 시간: 분필 선이 줄어든다
-      const k = Math.max(0, 1 - (t - q.born) / q.limit), bw = Math.min(view.w * .36, 520), by = y + size * .85;
+      const k = Math.max(0, 1 - (t - q.born) / q.limit), bw = Math.min(view.w * .36, 520), by = y + size * .62;
       ctx.save(); ctx.lineCap = 'round'; ctx.lineWidth = 6;
       ctx.strokeStyle = 'rgba(241,245,239,.15)'; ctx.beginPath(); ctx.moveTo(x - bw / 2, by); ctx.lineTo(x + bw / 2, by); ctx.stroke();
       ctx.strokeStyle = k * q.limit < 2 ? '#f2a3a3' : 'rgba(241,245,239,.85)';
